@@ -1,0 +1,45 @@
+{
+  "name": "copilot-cli",
+  "version": "1.0.0",
+  "description": "GitHub Copilot CLI tool that exposes an API and MCP server",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "copilot-cli": "./bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/cli/index.ts",
+    "start": "node dist/cli/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "link": "npm link",
+    "unlink": "npm unlink",
+    "postinstall": "npm run build"
+  },
+  "keywords": [
+    "github",
+    "copilot",
+    "openai",
+    "proxy",
+    "api",
+    "mcp",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.1.0",
+    "express": "^4.18.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
