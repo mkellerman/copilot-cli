@@ -13,3 +13,7 @@ build/
 *~
 .npm/
 .cache/
+
+# BMAD-specific ignores
+.bmad-core/
+.github/chatmodes/

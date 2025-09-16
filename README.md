@@ -22,35 +22,35 @@ npm link
 
 ```bash
 # Authenticate using GitHub device flow
-copilot-cli login
+copilot-cli auth login
 
 # Or manually enter a token
-copilot-cli login --manual
+copilot-cli auth login --manual
 
 # Check authentication status
-copilot-cli status
+copilot-cli auth status
 
 # Remove authentication
-copilot-cli logout
+copilot-cli auth logout
 ```
 
 ### Start API Proxy Server
 
 ```bash
 # Start on default port (3000)
-copilot-cli start
+copilot-cli api start
 
 # Start on custom port
-copilot-cli start -p 8080
+copilot-cli api start -p 8080
 
 # Start with debug logging
-copilot-cli start --debug
+copilot-cli api start --debug
 ```
 
 ### Start MCP Server
 
 ```bash
-copilot-cli mcp
+copilot-cli mcp start
 ```
 
 ## Project Structure

@@ -1,0 +1,293 @@
+<!-- Powered by BMAD™ Core -->
+
+# Copilot CLI — Brownfield Architecture Document
+
+Date: 2025-09-15
+Version: 1.0
+Author: automated-doc-generator
+
+## Introduction
+
+This document captures the CURRENT STATE of the Copilot CLI repository (GitHub: copilot-cli). It is a brownfield analysis — describing how the codebase actually works today, including technical debt, integration points, configuration, and known gotchas. The goal is to provide a concise reference for developers and AI agents who will be contributing, fixing bugs, or extending the project.
+
+### Document scope
+- Comprehensive documentation of the repository as found on disk. No external PRD was provided.
+
+### Change log
+
+| Date | Version | Description | Author |
+| ---- | ------- | ----------- | ------ |
+| 2025-09-15 | 1.0 | Initial brownfield analysis | automated-doc-generator |
+
+## Quick reference — key files and entry points
+
+- CLI entry: `bin/cli.js` -> runtime command `copilot-cli` (bundled to bin)
+- CLI source: `src/cli/index.ts` (main CLI dispatcher)
+- API server: `src/api/server.ts` (creates Express app and routes)
+- MCP server: `src/mcp/index.ts` (MCP server entry - see `src/mcp/`)
+- Authentication and Copilot integration: `src/core/auth.ts`
+- Configuration manager: `src/core/config-manager.ts`
+- Local config & auth storage: `src/config/index.ts` (defines `~/.copilot-cli` paths)
+- Templates and agent tooling: `.bmad-core/templates/` and `.bmad-core/tasks/`
+- Documentation/help: `docs/` (help pages), `README.md`
+
+## Technical summary
+
+This is a Node.js/TypeScript CLI and lightweight API proxy that exposes GitHub Copilot functionality via an OpenAI-compatible HTTP interface. It also includes a Model Context Protocol (MCP) server and a CLI for managing auth, config, and runtime services.
+
+### Actual tech stack (from `package.json`)
+
+| Category | Technology | Version / notes |
+| -------- | ---------- | --------------- |
+| Runtime | Node.js (>=14) | `package.json` engines: ">=14.0.0" |
+| Language | TypeScript | ^5.x used in devDependencies |
+| Server framework | Express | ^4.18.2 |
+| MCP SDK | @modelcontextprotocol/sdk | ^1.1.0 |
+| Validation | zod | ^3.22.4 |
+| Dev tools | tsx, tsc | used for dev and build |
+
+### Package management
+- `npm` is used. There is no lockfile tracked in repository (commit one to stabilize installs).
+
+## Repository structure (actual)
+
+```
+/
+├── bin/                   # Executable entry (cli.js)
+├── src/                   # TypeScript source
+│   ├── api/               # Express API proxy implementation
+│   │   └── server.ts
+│   ├── cli/               # CLI command wiring and commands
+│   │   └── index.ts
+│   ├── core/              # Core utilities (auth, config-manager, process-manager)
+│   │   ├── auth.ts
+│   │   └── config-manager.ts
+│   ├── config/            # Config constants and storage helpers
+│   │   └── index.ts
+│   ├── mcp/               # MCP server and tools
+│   └── ...                # other modules (handlers, routes, utils)
+├── docs/                  # Help pages and generated docs
+├── .bmad-core/            # BMAD task templates, checklists, and agent tooling
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+## Key modules and purpose (actual)
+
+- `src/cli/index.ts` — CLI entry point. Implements a simple dispatcher for commands: `auth`, `api`, `mcp`, `config`, `status`, `chat`, `model`. It parses a small set of flags and delegates to command modules under `src/cli/commands`.
+
+- `src/api/server.ts` — Express server that exposes OpenAI-compatible endpoints:
+  - GET `/` health/info
+  - GET `/v1/models` — returns models (calls `testModels`)
+  - POST `/v1/chat/completions` — proxies to GitHub Copilot chat/completions
+  - POST `/v1/completions` — compatibility shim for legacy completions
+  - CORS and basic headers are set. Supports streaming responses via `text/event-stream`.
+
+- `src/core/auth.ts` — GitHub device flow authentication, Copilot token acquisition, token testing and model discovery. Important functions:
+  - `deviceAuth(provider)` — runs device code flow
+  - `getCopilotToken(githubToken)` — tries to fetch Copilot internal token, falls back to GitHub token
+  - `getValidToken()` — returns an active token after attempting a refresh
+  - `testModels(token)` — lists models and tests availability
+
+- `src/core/config-manager.ts` — singleton `ConfigManager` that persists config to `~/.copilot-cli/config.json` (via `src/config/index.ts` helpers). Provides `get`, `set`, `list`, and `reset`.
+
+- `src/config/index.ts` — defines actual config file paths and profile storage locations under the user's home directory:
+  - `CONFIG_DIR = ~/.copilot-cli`
+  - `TOKEN_FILE = ~/.copilot-cli/token`
+  - `AUTH_FILE = ~/.copilot-cli/auth.json`
+  - `PROFILES_FILE = ~/.copilot-cli/profiles.json`
+  - `ACTIVE_PROFILE_FILE = ~/.copilot-cli/active-profile`
+
+## Configuration and auth storage (practical details)
+
+- Auth profiles and tokens are stored under the user's home directory in the `~/.copilot-cli` folder. Files are written with `0600` file permissions where possible.
+- The code migrates legacy auth formats into the profile system via `migrateOldAuth()`.
+- `ConfigManager` persists a `config.json` in the same config dir.
+
+Security note: tokens are stored locally in files. The repository does not include an integration with OS keychain or a secrets manager. Consider documenting this and recommending secure backups and file permission audits.
+
+## External integrations
+
+- GitHub APIs: device flow and Copilot internal endpoints (see `src/core/auth.ts`).
+- Upstream Copilot host: `api.githubcopilot.com` (defined as `COPILOT_HOST` in config).
+- MCP SDK: `@modelcontextprotocol/sdk` is a declared dependency.
+
+## Testing and CI (current state)
+
+- Type checking: `npm run typecheck` (`tsc --noEmit`) is present and runs successfully in local checks.
+- No test framework or test suites were discovered in the repository (no `tests/` or test scripts in `package.json`).
+- No CI configuration (e.g., GitHub Actions workflows) found in the scanned repository.
+
+Recommendation: add a CI workflow that runs `npm ci`, `npm run typecheck`, and a lightweight smoke test that verifies `node dist/cli/index.js --version` or starts the server and hits `/`.
+
+## Runtime & deployment (current state)
+
+- No Dockerfile or formal deployment docs found.
+- `npm run build` compiles TypeScript (`tsc`) and `npm run start` expects `dist/cli/index.js` to exist.
+
+Recommendation: provide a `Dockerfile`, a `docker-compose.yml` for local testing, and a `docs/deployment.md` describing production deployment considerations (ports, environment variables, token provisioning and rotation).
+
+## Technical debt, gotchas, and known issues
+
+1. Token management and Copilot integration are fragile by nature:
+   - `getCopilotToken()` falls back to returning the GitHub token in some error cases.
+   - `getValidToken()` attempts a silent refresh but otherwise prompts the user to re-auth.
+
+2. No automated tests discovered — changes risk regressions without CI.
+
+3. No formal deployment pipeline or monitoring — production failures could go unnoticed.
+
+4. Configuration is file-based under `~/.copilot-cli` — good for simplicity, but beware multi-user environments and CI usage.
+
+5. Model discovery and testing (`testModels`) make network calls and perform concurrency-limited checks — this is potentially rate-limited by upstream APIs.
+
+## Integration impact & constraints
+
+- Any change to the auth flow or token storage must consider the migration path implemented in `src/config/index.ts` (see `migrateOldAuth`).
+- The API proxy sets several headers when proxying to Copilot. Changes to the request/response format need to preserve compatibility.
+
+## Module-level details (expanded)
+
+The following sections expand on the highest-priority modules (auth, api, config) with concrete file references, behavior notes, edge cases, and how to test/change safely.
+
+### Auth (priority)
+
+- Files: `src/core/auth.ts`, `src/config/index.ts` (profile/token paths)
+- Responsibilities:
+   - Implement GitHub device flow (`deviceAuth`) and poll for tokens.
+   - Convert GitHub token into a Copilot token (`getCopilotToken`) where available.
+   - Validate and refresh tokens (`getValidToken`) and provide `testModels` to discover working models.
+- Important behaviors and gotchas:
+   - `getCopilotToken` may return the fallback GitHub token when Copilot-specific endpoints are unavailable; downstream code must tolerate either token flavor.
+   - `getValidToken` performs a live HTTP call to `api.githubcopilot.com` and may block startup on slow networks; it attempts silent refresh but otherwise requires interactive re-auth.
+   - `testModels` parallelizes model checks with a small concurrency limit; expect occasional rate-limit behaviour from upstream.
+- Testing and safe-change checklist:
+   - Unit-test: mock HTTPS responses for `getCopilotToken`, `getValidToken`, and `testSingleModel` to simulate 200/401/404 and timeout scenarios.
+   - Integration/smoke: run `copilot-cli auth login --manual` (or device flow) locally and verify `~/.copilot-cli/profiles.json`/`active-profile` are updated.
+   - Migration: `migrateOldAuth()` will auto-convert legacy `auth.json` to profile-based storage; keep this logic intact when changing storage formats.
+
+### API (priority)
+
+- Files: `src/api/server.ts`, plus request helpers in `src/core/*` used by the proxy.
+- Responsibilities:
+   - Expose OpenAI-compatible endpoints: `/v1/models`, `/v1/chat/completions`, `/v1/completions` shim, and a root health endpoint.
+   - Proxy requests to `api.githubcopilot.com` using the active Copilot token.
+   - Support both streaming (SSE/text-event-stream) and non-streaming responses.
+- Important behaviors and gotchas:
+   - Streaming mode sets `Content-Type: text/event-stream` and pipes upstream data directly; ensure client timeouts & backpressure are considered.
+   - Error handling: upstream non-200 responses are transformed into JSON error objects for clients; preserving upstream error payloads helps debugging.
+   - Headers: the server attaches Editor-Version, Editor-Plugin-Version, Openai-Organization and User-Agent headers; changes here can affect upstream compatibility.
+- Testing and safe-change checklist:
+   - Unit-test: mock https.request to simulate upstream success, 500, and slow streaming data.
+   - Smoke-test: start server with `copilot-cli api start --token <local-token>` and curl `/v1/models` to assert a 200 JSON list.
+   - Load considerations: streaming large responses should be tested with a client that consumes event-stream correctly.
+
+### Config (priority)
+
+- Files: `src/core/config-manager.ts`, `src/config/index.ts`
+- Responsibilities:
+   - Load/save runtime configuration and persist `config.json` under `~/.copilot-cli`.
+   - Provide singleton access via `ConfigManager.getInstance()` with `get`, `set`, `list`, and `reset` methods.
+- Important behaviors and gotchas:
+   - `set` performs basic validation (ports, mcp.transport, debug). Invalid inputs throw errors; callers should handle exceptions.
+   - Config is persisted immediately on `set()`, which simplifies usage but may complicate tests — prefer mocking filesystem in unit tests.
+- Testing and safe-change checklist:
+   - Unit-test: test `get`, `set` validation, `reset`, and persistence behavior by creating a temporary config dir (or mocking fs).
+   - Backwards compatibility: `loadAuthInfo()` and `migrateOldAuth()` rely on specific filenames; if renaming config files, update migration logic.
+
+### CLI (concise)
+
+- Files: `src/cli/index.ts`, `src/cli/commands/*` (commands are split across files)
+- Responsibilities:
+   - Parse arguments, map commands to modules, and provide help text.
+- Notes:
+   - The CLI is intentionally minimal. When adding commands, follow the existing `parseOptions` pattern to keep parity.
+
+### MCP (concise)
+
+- Files: `src/mcp/index.ts` and `src/mcp/tools/*`
+- Responsibilities:
+   - Host Model Context Protocol endpoints and tools; verify `@modelcontextprotocol/sdk` usage for version compatibility when upgrading the SDK.
+
+## Troubleshooting & developer tips
+
+- Quick local checks:
+   - Confirm config dir: `ls -la ~/.copilot-cli`
+   - Validate token presence: `cat ~/.copilot-cli/token` (or inspect `profiles.json`)
+   - Start API server for smoke test: `copilot-cli api start --token <token>` then `curl http://localhost:3000/`
+
+- Common failures and how to debug:
+   - Upstream 401/403: token expired or invalid — run `copilot-cli auth login` and re-run the failing request.
+   - Streaming appears hung: check client supports SSE and that proxies (NGINX) are not buffering/chunking.
+   - Model discovery empty: `testModels` may return empty if network or upstream service blocked; retry with a known-good token.
+
+## Quick developer checklist for a safe PR
+
+1. Add or update unit tests for changed modules (auth/api/config).
+2. Run `npm run typecheck` and `npm run build` locally.
+3. Run smoke tests (start api and hit `/v1/models` and `/v1/chat/completions` with a minimal prompt).
+4. If changing storage filenames, update `migrateOldAuth()` and add a migration unit test.
+
+
+## Recommended next actions (prioritized)
+
+1. Quick CI (high priority)
+   - Add a GitHub Actions workflow to run `npm ci`, `npm run typecheck`, and a smoke test hitting `src/api/server.ts`'s root endpoint.
+
+2. Tests (high priority)
+   - Add unit tests for `ConfigManager`, `auth` helpers, and the CLI dispatcher.
+
+3. Deployment docs & containerization (medium priority)
+   - Add a `Dockerfile` and `docs/deployment.md` describing runtime env vars and config directory expectations.
+
+4. Secrets security (medium priority)
+   - Document the token storage scheme in `README.md` and consider optional integration with OS keychain or env-var-only mode for CI.
+
+5. Monitoring & health checks (low/medium)
+   - Add a health endpoint and simple telemetry: uptime, last successful auth check, error rate.
+
+## Suggested quick PR content (small, high-value changes)
+
+- Create `.github/workflows/ci.yml` that runs `npm ci`, `npm run typecheck`, and a Node.js smoke script.
+- Add `docs/deployment.md` and a one-file `Dockerfile` for running the API server.
+- Add `docs/secrets.md` describing where tokens live and how to rotate/remove them safely.
+
+## Appendix — Useful commands
+
+Local dev:
+
+```bash
+npm install
+npm run build
+npm run dev
+```
+
+Auth and running the proxy locally:
+
+```bash
+# Authenticate using GitHub device flow
+copilot-cli auth login
+
+# Start API proxy server on default port
+copilot-cli api start
+
+# Start MCP server
+copilot-cli mcp start
+```
+
+## Quality gates performed for this document
+
+- TypeScript typecheck: PASSED (`tsc --noEmit` ran without errors locally)
+- Lint: Not run (no linter configured)
+- Unit tests: None present
+
+## Closing notes
+
+This document records the repository's reality as of 2025-09-15. If you want I can:
+
+- Create the recommended CI workflow and smoke test (small PR)
+- Add the `docs/deployment.md` and `Dockerfile` (small PR)
+- Run an interactive elicitation session to refine the doc and add module-level details
+
+Which of those would you like me to do next? If you'd prefer a focused document on a specific planned change, paste a short PRD or description and I'll regenerate the focused section of this document.

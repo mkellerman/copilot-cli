@@ -117,17 +117,35 @@ export async function restart(options: {
   console.log(`✓ API server restarted on ${host}:${port}`);
 }
 
-export function status(): void {
+export function status(options: { json?: boolean; verbose?: boolean } = {}): void {
   const pm = ProcessManager.getInstance();
   const info = pm.getServiceInfo('api');
-  
-  if (info) {
-    const uptime = pm.getUptime('api');
-    console.log(`API Server: ✓ Running`);
-    console.log(`  Port: ${info.port || 'unknown'}`);
-    console.log(`  PID: ${info.pid}`);
-    console.log(`  Uptime: ${uptime}`);
+
+  if (options.json) {
+    const output = {
+      services: {
+        api: info ? {
+          status: 'running' as const,
+          port: info.port,
+          pid: info.pid,
+          uptime: pm.getUptime('api'),
+          startTime: info.startTime
+        } : { status: 'stopped' as const }
+      }
+    };
+    console.log(JSON.stringify(output, null, 2));
   } else {
-    console.log('API Server: ✗ Stopped');
+    if (info) {
+      const uptime = pm.getUptime('api');
+      console.log(`API Server: ✓ Running`);
+      console.log(`  Port: ${info.port || 'unknown'}`);
+      if (options.verbose) {
+        console.log(`  PID: ${info.pid}`);
+        console.log(`  Started: ${new Date(info.startTime).toLocaleString()}`);
+      }
+      console.log(`  Uptime: ${uptime}`);
+    } else {
+      console.log('API Server: ✗ Stopped');
+    }
   }
 }

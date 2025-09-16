@@ -371,6 +371,58 @@ export async function testModels(token: string): Promise<string[]> {
   });
 }
 
+export interface CopilotModelInfo {
+  id: string;
+  owned_by?: string;
+  object?: string;
+  created?: number;
+}
+
+// Fetch raw models from Copilot without probing each one
+export async function listModels(token: string): Promise<CopilotModelInfo[]> {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.githubcopilot.com',
+      port: 443,
+      path: '/models',
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'User-Agent': 'GitHubCopilotChat/0.11.0',
+        'Editor-Version': 'vscode/1.85.0',
+        'Editor-Plugin-Version': 'copilot-chat/0.11.0'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const response = JSON.parse(data);
+            const models: CopilotModelInfo[] = response.data?.map((m: any) => ({
+              id: m.id,
+              owned_by: m.owned_by,
+              object: m.object,
+              created: m.created,
+            })) || [];
+            resolve(models);
+          } catch {
+            resolve([]);
+          }
+        } else {
+          resolve([]);
+        }
+      });
+    });
+
+    req.on('error', () => resolve([]));
+    req.end();
+  });
+}
+
 async function testWorkingModels(token: string, allModels: string[]): Promise<string[]> {
   const workingModels: string[] = [];
   

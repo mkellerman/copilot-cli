@@ -8,6 +8,8 @@ USAGE
 
 SUBCOMMANDS
   login           Authenticate with GitHub Copilot (device flow)
+  inventory       Authenticate across providers and export models as CSV
+  discover        Search GitHub code for device-flow client_ids and export CSV
   logout [id]     Remove authentication profile (current or specific)
   list            List all authentication profiles
   switch <id>     Switch to a specific authentication profile
@@ -22,6 +24,8 @@ EXAMPLES
   $ copilot-cli auth logout             # Remove current profile
   $ copilot-cli auth logout vscode-username   # Remove specific profile
   $ copilot-cli auth refresh            # Refresh current token
+  $ copilot-cli auth inventory --providers vscode,copilot --output models.csv
+  $ copilot-cli auth discover --token $GITHUB_TOKEN --limit 200 --output client_ids.csv
 `;
 
 export const apiHelp = `

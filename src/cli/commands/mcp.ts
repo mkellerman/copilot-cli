@@ -110,20 +110,39 @@ export async function restart(options: {
   }
 }
 
-export function status(): void {
+export function status(options: { json?: boolean; verbose?: boolean } = {}): void {
   const pm = ProcessManager.getInstance();
   const info = pm.getServiceInfo('mcp');
-  
-  if (info) {
-    const uptime = pm.getUptime('mcp');
-    console.log(`MCP Server: ✓ Running`);
-    console.log(`  Transport: ${info.transport || 'unknown'}`);
-    if (info.transport !== 'stdio') {
-      console.log(`  Port: ${info.port || 'unknown'}`);
-    }
-    console.log(`  PID: ${info.pid}`);
-    console.log(`  Uptime: ${uptime}`);
+
+  if (options.json) {
+    const output = {
+      services: {
+        mcp: info ? {
+          status: 'running' as const,
+          transport: info.transport,
+          port: info.port,
+          pid: info.pid,
+          uptime: pm.getUptime('mcp'),
+          startTime: info.startTime
+        } : { status: 'stopped' as const }
+      }
+    };
+    console.log(JSON.stringify(output, null, 2));
   } else {
-    console.log('MCP Server: ✗ Stopped');
+    if (info) {
+      const uptime = pm.getUptime('mcp');
+      console.log(`MCP Server: ✓ Running`);
+      console.log(`  Transport: ${info.transport || 'unknown'}`);
+      if (info.transport !== 'stdio') {
+        console.log(`  Port: ${info.port || 'unknown'}`);
+      }
+      if (options.verbose) {
+        console.log(`  PID: ${info.pid}`);
+        console.log(`  Started: ${new Date(info.startTime).toLocaleString()}`);
+      }
+      console.log(`  Uptime: ${uptime}`);
+    } else {
+      console.log('MCP Server: ✗ Stopped');
+    }
   }
 }
