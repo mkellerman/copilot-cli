@@ -1,12 +1,11 @@
 # Copilot CLI
 
-A TypeScript CLI tool that exposes GitHub Copilot as an OpenAI-compatible API and MCP server.
+A TypeScript CLI tool that exposes GitHub Copilot as an OpenAI-compatible API proxy.
 
 ## Features
 
 - **API Proxy Server**: Exposes GitHub Copilot as an OpenAI-compatible API
-- **MCP Server**: Model Context Protocol server for Copilot integration
-- **CLI Tool**: Command-line interface for managing authentication and servers
+- **CLI Tool**: Manage authentication, configuration, and model selection
 
 ## Installation
 
@@ -34,23 +33,30 @@ copilot-cli auth status
 copilot-cli auth logout
 ```
 
-### Start API Proxy Server
+### Run the API Proxy
 
 ```bash
 # Start on default port (3000)
-copilot-cli api start
+copilot-cli api
 
 # Start on custom port
-copilot-cli api start -p 8080
+copilot-cli api --port 8080
 
 # Start with debug logging
-copilot-cli api start --debug
+copilot-cli api --debug
 ```
 
-### Start MCP Server
+### Configuration
 
 ```bash
-copilot-cli mcp start
+# Show merged configuration
+copilot-cli config list
+
+# Validate configuration file and environment overrides
+copilot-cli config doctor
+
+# Update a setting
+copilot-cli config set api.port 8080
 ```
 
 ## Project Structure
@@ -61,9 +67,6 @@ copilot-cli mcp start
 │   ├── api/               # API proxy server
 │   │   ├── server.ts      # Express server implementation
 │   │   └── standalone.ts  # Standalone server entry
-│   ├── mcp/               # MCP server
-│   │   ├── index.ts       # MCP server entry
-│   │   └── tools/         # MCP tool implementations
 │   ├── cli/               # CLI implementation
 │   │   └── index.ts       # CLI commands
 │   ├── core/              # Core functionality
@@ -92,5 +95,12 @@ npm run typecheck
 
 ## Environment Variables
 
-- `PORT`: API server port (defaults to configured value or 3000)
+- `PORT`: API server port (legacy override)
 - `DEBUG`: Enable debug logging
+- `COPILOT_API_PORT`: Override API port without editing config
+- `COPILOT_API_HOST`: Override API bind host
+- `COPILOT_MODEL_DEFAULT`: Override default model id
+- `COPILOT_MODEL_REFRESH_MINUTES`: Model cache refresh interval
+- `COPILOT_CATALOG_TTL_MINUTES`: Cached model TTL in minutes
+- `COPILOT_CATALOG_STALE_MINUTES`: Minutes before cached models reported as stale
+- `COPILOT_DEBUG`: Enable debug logging globally (`true`/`false`)

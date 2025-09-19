@@ -1,7 +1,5 @@
-import https from 'https';
-import { loadToken, loadAuthInfo } from '../../config/index.js';
-import { COPILOT_HOST } from '../../config/index.js';
 import { ConfigManager } from '../../core/config-manager.js';
+import { CopilotChatCompletionRequest, CopilotHttpClient } from '../../core/copilot-client.js';
 import { getValidToken } from '../../core/auth.js';
 
 interface ChatResponse {
@@ -12,60 +10,44 @@ interface ChatResponse {
   }>;
 }
 
-function makeRequest(token: string, prompt: string): Promise<ChatResponse> {
-  return new Promise((resolve, reject) => {
-    const config = ConfigManager.getInstance();
-    const defaultModel = config.get('model.default') || 'gpt-4';
-    
-    const data = JSON.stringify({
-      messages: [{ role: 'user', content: prompt }],
-      model: defaultModel,
-      temperature: 0.1,
-      max_tokens: 4096,
-      stream: false
-    });
+async function makeRequest(token: string, prompt: string): Promise<ChatResponse> {
+  const config = ConfigManager.getInstance();
+  const defaultModel = config.get<string>('model.default') || 'gpt-4';
+  const client = CopilotHttpClient.getInstance();
 
-    const options = {
-      hostname: COPILOT_HOST,
-      port: 443,
-      path: '/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'Content-Length': Buffer.byteLength(data).toString(),
-        'Editor-Version': 'vscode/1.85.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.11.0',
-        'Openai-Organization': 'github-copilot',
-        'User-Agent': 'GitHubCopilotChat/0.11.0'
+  const payload: CopilotChatCompletionRequest = {
+    messages: [{ role: 'user', content: prompt }],
+    model: defaultModel,
+    temperature: 0.1,
+    max_tokens: 4096,
+    stream: false
+  };
+
+  const response = await client.postChatCompletion(token, payload);
+  const text = await response.text();
+
+  if (!response.ok) {
+    let message = text || `Request failed with status ${response.status}`;
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        message = parsed?.error?.message || message;
+      } catch {
+        // ignore parse errors, use raw text
       }
-    };
+    }
+    throw new Error(message);
+  }
 
-    const req = https.request(options, (res) => {
-      let responseData = '';
-      
-      res.on('data', (chunk) => {
-        responseData += chunk.toString();
-      });
+  if (!text) {
+    throw new Error('Empty response from GitHub Copilot');
+  }
 
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          try {
-            const response = JSON.parse(responseData);
-            resolve(response);
-          } catch (e) {
-            reject(new Error('Failed to parse response'));
-          }
-        } else {
-          reject(new Error(`Request failed with status ${res.statusCode}: ${responseData}`));
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.write(data);
-    req.end();
-  });
+  try {
+    return JSON.parse(text) as ChatResponse;
+  } catch {
+    throw new Error('Failed to parse response');
+  }
 }
 
 export async function chat(prompt: string): Promise<void> {

@@ -3,6 +3,8 @@ import { exec } from 'child_process';
 import os from 'os';
 import { AuthProvider } from './auth-providers.js';
 import { loadToken, loadAuthInfo, saveAuthInfo, loadAuthProfiles, saveAuthProfile, getActiveProfile, setActiveProfile } from '../config/index.js';
+import { CopilotHttpClient } from './copilot-client.js';
+import { ModelCatalog } from './model-catalog.js';
 
 const GITHUB_DEVICE_AUTH_URL = 'https://github.com/login/device/code';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -75,6 +77,9 @@ function httpsRequest<T = any>(url: string, options: any, data?: string): Promis
     req.end();
   });
 }
+
+const copilotClient = CopilotHttpClient.getInstance();
+const modelCatalog = ModelCatalog.getInstance();
 
 function openBrowser(url: string): Promise<boolean> {
   const platform = os.platform();
@@ -267,42 +272,7 @@ export async function getValidToken(): Promise<string | null> {
   }
   
   // Test if token is valid
-  const isValid = await new Promise<boolean>((resolve) => {
-    const testData = JSON.stringify({
-      messages: [{ role: 'user', content: 'test' }],
-      model: 'gpt-4',
-      max_tokens: 1,
-      temperature: 0
-    });
-
-    const options = {
-      hostname: 'api.githubcopilot.com',
-      port: 443,
-      path: '/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${profile.token}`,
-        'Content-Length': Buffer.byteLength(testData).toString(),
-        'Editor-Version': 'vscode/1.85.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.11.0',
-        'Openai-Organization': 'github-copilot',
-        'User-Agent': 'GitHubCopilotChat/0.11.0'
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        resolve(res.statusCode === 200);
-      });
-    });
-
-    req.on('error', () => resolve(false));
-    req.write(testData);
-    req.end();
-  });
+  const isValid = await copilotClient.verifyModel(profile.token, 'gpt-4');
 
   if (isValid) {
     return profile.token;
@@ -326,49 +296,42 @@ export async function getValidToken(): Promise<string | null> {
   return null;
 }
 
-export async function testModels(token: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.githubcopilot.com',
-      port: 443,
-      path: '/models',
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-        'User-Agent': 'GitHubCopilotChat/0.11.0',
-        'Editor-Version': 'vscode/1.85.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.11.0'
-      }
-    };
+export async function testModels(
+  token: string,
+  profileId?: string,
+  options: { verify?: boolean; signal?: AbortSignal; concurrency?: number } = {}
+): Promise<string[]> {
+  const verify = options.verify ?? true;
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          try {
-            const response = JSON.parse(data);
-            const allModels = response.data?.map((m: any) => m.id) || [];
-            
-            // Test each model with a simple prompt
-            testWorkingModels(token, allModels).then(workingModels => {
-              resolve(workingModels);
-            }).catch(() => {
-              resolve([]);
-            });
-          } catch (e) {
-            resolve([]);
-          }
-        } else {
-          resolve([]);
-        }
+  if (profileId) {
+    try {
+      const entry = await modelCatalog.refresh({
+        profileId,
+        token,
+        verify,
+        signal: options.signal,
+        concurrency: options.concurrency,
+        source: 'manual'
       });
-    });
+      return entry.models;
+    } catch {
+      // Fall back to direct probe below
+    }
+  }
 
-    req.on('error', () => resolve([]));
-    req.end();
-  });
+  try {
+    const models = await copilotClient.listModels(token);
+    const modelIds = models.map(model => model.id).filter(Boolean);
+    if (modelIds.length === 0) {
+      return [];
+    }
+    if (!verify) {
+      return modelIds;
+    }
+    return await testWorkingModels(token, modelIds);
+  } catch {
+    return [];
+  }
 }
 
 export interface CopilotModelInfo {
@@ -380,47 +343,17 @@ export interface CopilotModelInfo {
 
 // Fetch raw models from Copilot without probing each one
 export async function listModels(token: string): Promise<CopilotModelInfo[]> {
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.githubcopilot.com',
-      port: 443,
-      path: '/models',
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-        'User-Agent': 'GitHubCopilotChat/0.11.0',
-        'Editor-Version': 'vscode/1.85.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.11.0'
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          try {
-            const response = JSON.parse(data);
-            const models: CopilotModelInfo[] = response.data?.map((m: any) => ({
-              id: m.id,
-              owned_by: m.owned_by,
-              object: m.object,
-              created: m.created,
-            })) || [];
-            resolve(models);
-          } catch {
-            resolve([]);
-          }
-        } else {
-          resolve([]);
-        }
-      });
-    });
-
-    req.on('error', () => resolve([]));
-    req.end();
-  });
+  try {
+    const models = await copilotClient.listModels(token);
+    return models.map((model) => ({
+      id: model.id,
+      owned_by: model.owned_by,
+      object: model.object,
+      created: model.created
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function testWorkingModels(token: string, allModels: string[]): Promise<string[]> {
@@ -456,45 +389,5 @@ async function testWorkingModels(token: string, allModels: string[]): Promise<st
 }
 
 async function testSingleModel(token: string, modelId: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const testData = JSON.stringify({
-      messages: [{ role: 'user', content: '2+2' }],
-      model: modelId,
-      max_tokens: 5,
-      temperature: 0
-    });
-
-    const options = {
-      hostname: 'api.githubcopilot.com',
-      port: 443,
-      path: '/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'Content-Length': Buffer.byteLength(testData).toString(),
-        'Editor-Version': 'vscode/1.85.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.11.0',
-        'Openai-Organization': 'github-copilot',
-        'User-Agent': 'GitHubCopilotChat/0.11.0'
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        resolve(res.statusCode === 200);
-      });
-    });
-
-    req.on('error', () => resolve(false));
-    req.setTimeout(5000, () => {
-      req.destroy();
-      resolve(false);
-    });
-    
-    req.write(testData);
-    req.end();
-  });
+  return copilotClient.verifyModel(token, modelId);
 }

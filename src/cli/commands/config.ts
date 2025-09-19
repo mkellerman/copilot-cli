@@ -1,40 +1,57 @@
-import { ConfigManager } from '../../core/config-manager.js';
+import { ConfigManager, type ConfigIssue } from '../../core/config-manager.js';
+import { CONFIG_PATHS, type ConfigPath } from '../../config/schema.js';
 
-export function get(key: string): void {
-  const config = ConfigManager.getInstance();
-  const value = config.get(key);
-  
-  if (value === undefined) {
-    console.error(`Configuration key '${key}' not found`);
-    process.exit(1);
-  }
-  
-  console.log(value);
-}
+const manager = ConfigManager.getInstance();
 
-export function set(key: string, value: string): void {
-  const config = ConfigManager.getInstance();
-  
-  try {
-    config.set(key, value);
-    console.log(`✓ Set ${key} = ${value}`);
-  } catch (error: any) {
-    console.error(`Error: ${error.message}`);
-    process.exit(1);
+export async function get(key: string): Promise<void> {
+  const path = resolvePath(key);
+  const value = manager.get(path);
+  if (typeof value === 'object') {
+    console.log(JSON.stringify(value, null, 2));
+  } else {
+    console.log(value);
   }
 }
 
-export function list(): void {
-  const config = ConfigManager.getInstance();
-  const settings = config.list();
-  
-  console.log('Current Configuration');
-  console.log('====================');
-  console.log(JSON.stringify(settings, null, 2));
+export async function set(key: string, value: string): Promise<void> {
+  const path = resolvePath(key);
+  await manager.set(path, value);
+  console.log(`✓ Set ${key}`);
 }
 
-export function reset(): void {
-  const config = ConfigManager.getInstance();
-  config.reset();
+export async function list(): Promise<void> {
+  console.log(JSON.stringify(manager.list(), null, 2));
+}
+
+export async function reset(): Promise<void> {
+  await manager.reset();
   console.log('✓ Configuration reset to defaults');
 }
+
+export async function doctor(): Promise<void> {
+  const report = manager.doctor();
+
+  if (report.ok) {
+    console.log('✓ Configuration is valid');
+  } else {
+    console.log('✗ Configuration issues detected:');
+    report.issues.forEach((issue) => printIssue(issue));
+  }
+
+  console.log('\nEffective configuration:');
+  console.log(JSON.stringify(report.config, null, 2));
+}
+
+function resolvePath(key: string): ConfigPath {
+  if (CONFIG_PATHS.includes(key as ConfigPath)) {
+    return key as ConfigPath;
+  }
+  throw new Error(`Unknown configuration key: ${key}`);
+}
+
+function printIssue(issue: ConfigIssue): void {
+  const location = issue.path ? `${issue.path}` : '*';
+  const valueHint = issue.value !== undefined ? ` (value: ${issue.value})` : '';
+  console.log(` - [${issue.source}] ${location}: ${issue.message}${valueHint}`);
+}
+

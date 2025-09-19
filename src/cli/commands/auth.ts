@@ -3,6 +3,7 @@ import readline from 'readline';
 import { deviceAuth, getCopilotToken, testModels, getValidToken, listModels } from '../../core/auth.js';
 import { saveToken, loadToken, deleteToken, saveAuthInfo, loadAuthInfo, loadAuthProfiles, saveAuthProfile, getActiveProfile, setActiveProfile, generateProfileId, deleteAuthProfile, AuthProfile } from '../../config/index.js';
 import { AUTH_PROVIDERS, getProvider } from '../../core/auth-providers.js';
+import { CopilotHttpClient } from '../../core/copilot-client.js';
 import fs from 'fs';
 
 function askForProvider(): Promise<string> {
@@ -127,44 +128,8 @@ export function logout(profileId?: string): void {
 }
 
 async function validateToken(token: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    // Test against Copilot API directly instead of GitHub API
-    const testData = JSON.stringify({
-      messages: [{ role: 'user', content: 'test' }],
-      model: 'gpt-4',
-      max_tokens: 1,
-      temperature: 0
-    });
-
-    const options = {
-      hostname: 'api.githubcopilot.com',
-      port: 443,
-      path: '/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'Content-Length': Buffer.byteLength(testData).toString(),
-        'Editor-Version': 'vscode/1.85.0',
-        'Editor-Plugin-Version': 'copilot-chat/0.11.0',
-        'Openai-Organization': 'github-copilot',
-        'User-Agent': 'GitHubCopilotChat/0.11.0'
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        // 200 = valid token, 401 = invalid/expired
-        resolve(res.statusCode === 200);
-      });
-    });
-
-    req.on('error', () => resolve(false));
-    req.write(testData);
-    req.end();
-  });
+  const client = CopilotHttpClient.getInstance();
+  return client.verifyModel(token, 'gpt-4');
 }
 
 export async function list(): Promise<void> {
@@ -400,145 +365,6 @@ export async function inventory(args: InventoryArgs): Promise<void> {
   if (args.output) {
     fs.writeFileSync(args.output, csv, 'utf8');
     console.log(`\n✓ Inventory written to ${args.output} (${rows.length} rows)`);
-  } else {
-    console.log('\n' + csv);
-  }
-}
-
-// --- Discover client_ids via GitHub Search API ---
-type DiscoverArgs = { token?: string; query?: string; limit?: number; output?: string };
-
-export async function discover(args: DiscoverArgs): Promise<void> {
-  const token = (args.token || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
-  if (!token) {
-    console.error('GitHub token required. Pass --token or set GITHUB_TOKEN.');
-    process.exit(1);
-  }
-
-  const query = args.query || '"github.com/login/device/code" client_id in:file';
-  const limit = Math.max(1, Math.min(args.limit ?? 150, 500));
-
-  const searchPerPage = 100; // max per_page
-  let page = 1;
-  const found: Array<{ clientId: string; repo: string; path: string; html_url: string }>=[];
-  const seenIds = new Set<string>();
-
-  async function githubGetJson<T>(path: string): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'api.github.com',
-        port: 443,
-        path,
-        method: 'GET',
-        headers: {
-          'Accept': 'application/vnd.github+json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'copilot-cli'
-        }
-      };
-      const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            try {
-              resolve(JSON.parse(data));
-            } catch (e) {
-              reject(new Error('Failed to parse JSON'));
-            }
-          } else {
-            reject(new Error(`GitHub API ${res.statusCode}: ${data}`));
-          }
-        });
-      });
-      req.on('error', reject);
-      req.end();
-    });
-  }
-
-  function extractClientIds(content: string): string[] {
-    const ids = new Set<string>();
-    // Patterns: JSON client_id: "Iv1.x" or hex; querystring client_id=...
-    const jsonPattern = /client_id\s*[:=]\s*["']([^"']+)["']/gi;
-    const qsPattern = /client_id=([A-Za-z0-9_.\-]+)/gi;
-    const candidates: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = jsonPattern.exec(content))) candidates.push(m[1]);
-    while ((m = qsPattern.exec(content))) candidates.push(m[1]);
-
-    for (const c of candidates) {
-      const s = c.trim();
-      if (/^Iv1\.[A-Za-z0-9]+$/.test(s)) ids.add(s);
-      else if (/^[a-f0-9]{20}$/i.test(s)) ids.add(s);
-      else if (/^[a-f0-9]{32}$/i.test(s)) ids.add(s);
-    }
-    return Array.from(ids);
-  }
-
-  console.log(`\nSearching GitHub code for: ${query}`);
-  while (found.length < limit) {
-    const encoded = encodeURIComponent(query);
-    const pagePath = `/search/code?q=${encoded}&per_page=${searchPerPage}&page=${page}`;
-    let searchResp: any;
-    try {
-      searchResp = await githubGetJson<any>(pagePath);
-    } catch (e: any) {
-      console.error(`Search failed on page ${page}: ${e.message || e}`);
-      break;
-    }
-
-    const items: any[] = Array.isArray(searchResp.items) ? searchResp.items : [];
-    if (items.length === 0) break;
-
-    for (const item of items) {
-      if (found.length >= limit) break;
-      const repoFull = item.repository?.full_name || '';
-      const path = item.path || '';
-      const html_url = item.html_url || '';
-      const sha = item.sha || item.repository?.default_branch || 'main';
-      // Get file content
-      const contentsPath = `/repos/${encodeURIComponent(repoFull)}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(sha)}`;
-      try {
-        const file = await githubGetJson<any>(contentsPath);
-        const encoded = file?.content;
-        const encoding = file?.encoding;
-        let content = '';
-        if (encoded && encoding === 'base64') {
-          content = Buffer.from(encoded, 'base64').toString('utf8');
-        } else if (typeof encoded === 'string') {
-          content = encoded as string;
-        }
-        const ids = extractClientIds(content);
-        for (const id of ids) {
-          if (!seenIds.has(id)) {
-            seenIds.add(id);
-            found.push({ clientId: id, repo: repoFull, path, html_url });
-            if (found.length >= limit) break;
-          }
-        }
-      } catch (e: any) {
-        // ignore file fetch errors and continue
-      }
-    }
-
-    page += 1;
-  }
-
-  // Output CSV
-  const header = ['client_id','repo','path','html_url'];
-  const lines = [header.join(',')];
-  const csvEscape = (s: string) => {
-    const needsQuotes = /[",\r\n]/.test(s);
-    const doubled = s.replace(/"/g, '""');
-    return needsQuotes ? '"' + doubled + '"' : doubled;
-  };
-  for (const r of found) {
-    lines.push([r.clientId, r.repo, r.path, r.html_url].map(v => csvEscape(String(v))).join(','));
-  }
-  const csv = lines.join('\n') + '\n';
-  if (args.output) {
-    fs.writeFileSync(args.output, csv, 'utf8');
-    console.log(`\n✓ Discovered ${found.length} unique client_id(s). Written to ${args.output}`);
   } else {
     console.log('\n' + csv);
   }

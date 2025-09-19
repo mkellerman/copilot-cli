@@ -3,9 +3,7 @@
 import yargs, { type Argv } from 'yargs';
 import * as authCommands from './commands/auth.js';
 import * as apiCommands from './commands/api.js';
-import * as mcpCommands from './commands/mcp.js';
 import * as configCommands from './commands/config.js';
-import * as statusCommand from './commands/status.js';
 import * as chatCommand from './commands/chat.js';
 import * as modelCommands from './commands/model.js';
 
@@ -26,33 +24,16 @@ try {
   // ignore; yargs will still show --version but without package linkage
 }
 
+let parser: Argv;
+
 function exitUsage(message: string): never {
   console.error(message);
+  try {
+    parser?.showHelp();
+  } catch {
+    // ignore help rendering errors
+  }
   process.exit(2);
-}
-
-function commonServiceOptions(y: Argv) {
-  return y
-    .option('port', {
-      alias: 'p',
-      type: 'number',
-      description: 'Port to bind'
-    })
-    .option('host', {
-      alias: 'H',
-      type: 'string',
-      description: 'Host to bind'
-    })
-    .option('background', {
-      alias: 'b',
-      type: 'boolean',
-      description: 'Run in background'
-    })
-    .option('debug', {
-      alias: 'd',
-      type: 'boolean',
-      description: 'Enable debug logging'
-    });
 }
 
 function withGlobalOptions(y: Argv) {
@@ -66,17 +47,25 @@ function withGlobalOptions(y: Argv) {
       description: 'Verbose output'
     })
     .strict()
-    .fail((msg: string, err: any, _yargs: any) => {
+    .fail((msg: string, err: any, yargsInstance: Argv) => {
       if (err) {
         console.error(err.message || err);
       } else if (msg) {
-        console.error(msg);
+        const friendly = msg.includes('Not enough non-option arguments')
+          ? 'Specify a subcommand. See --help for usage.'
+          : msg;
+        console.error(friendly);
+      }
+      try {
+        yargsInstance?.showHelp();
+      } catch {
+        // ignore help rendering errors
       }
       process.exit(2);
     });
 }
  
-let parser = yargs(argv)
+parser = yargs(argv)
   .scriptName('copilot-cli')
   .usage('Usage: $0 <command> [options]')
   .wrap(Math.min(100, process.stdout.columns || 100))
@@ -109,15 +98,6 @@ let parser = yargs(argv)
           , async (args: any) => {
             await authCommands.inventory({ providers: args.providers as string | undefined, output: args.output as string | undefined });
           })
-          .command('discover', 'Search GitHub for code using device flow and extract client_ids', (y: Argv) =>
-            y
-              .option('token', { type: 'string', describe: 'GitHub token (or set GITHUB_TOKEN env var)' })
-              .option('query', { type: 'string', describe: 'Custom search query', default: '"github.com/login/device/code" client_id in:file' })
-              .option('limit', { type: 'number', describe: 'Max results to fetch (approximate)', default: 150 })
-              .option('output', { type: 'string', describe: 'Write CSV to file instead of stdout' })
-          , async (args: any) => {
-            await authCommands.discover({ token: args.token as string | undefined, query: args.query as string | undefined, limit: args.limit as number | undefined, output: args.output as string | undefined });
-          })
           .command('logout [id]', 'Remove authentication profile', () => {}, (args: any) => {
             authCommands.logout(args.id as string | undefined);
           })
@@ -137,53 +117,31 @@ let parser = yargs(argv)
           .demandCommand(1, 'Specify an auth subcommand.')
       , () => {})
     .command(
-      'api <subcommand>',
-      'Manage OpenAI-compatible API server',
+      'api',
+      'Run the OpenAI-compatible API server',
       (y: Argv) =>
         y
-          .command('start', 'Start the API server', (y: Argv) =>
-            commonServiceOptions(y).option('token', { type: 'string', describe: 'Override auth token' })
-          , async (args: any) => {
-            await apiCommands.start({ port: args.port as number | undefined, host: args.host as string | undefined, token: args.token as string | undefined, background: !!args.background, debug: !!args.debug });
+          .option('port', {
+            alias: 'p',
+            type: 'number',
+            description: 'Port to bind'
           })
-          .command('stop', 'Stop the API server', () => {}, () => {
-            apiCommands.stop();
+          .option('token', {
+            type: 'string',
+            describe: 'Override authentication token'
           })
-          .command('restart', 'Restart the API server', (y: Argv) =>
-            commonServiceOptions(y).option('token', { type: 'string', describe: 'Override auth token' })
-          , async (args: any) => {
-            await apiCommands.restart({ port: args.port as number | undefined, host: args.host as string | undefined, token: args.token as string | undefined, background: !!args.background, debug: !!args.debug });
+          .option('debug', {
+            alias: 'd',
+            type: 'boolean',
+            description: 'Enable debug logging'
           })
-          .command('status', 'Show API server status', (y: Argv) => y, (args: any) => {
-            apiCommands.status({ json: !!args.json, verbose: !!args.verbose });
-          })
-          .demandCommand(1, 'Specify an api subcommand.')
-      , () => {})
-    .command(
-      'mcp <subcommand>',
-      'Manage MCP server',
-      (y: Argv) =>
-        y
-          .command('start', 'Start the MCP server', (y: Argv) =>
-            commonServiceOptions(y)
-              .option('transport', { type: 'string', choices: ['stdio', 'tcp', 'sse'] as const, default: 'stdio', describe: 'Transport type' })
-          , async (args: any) => {
-            await mcpCommands.start({ transport: args.transport as any, port: args.port as number | undefined, background: !!args.background, debug: !!args.debug });
-          })
-          .command('stop', 'Stop the MCP server', () => {}, () => {
-            mcpCommands.stop();
-          })
-          .command('restart', 'Restart the MCP server', (y: Argv) =>
-            commonServiceOptions(y)
-              .option('transport', { type: 'string', choices: ['stdio', 'tcp', 'sse'] as const, default: 'stdio', describe: 'Transport type' })
-          , async (args: any) => {
-            await mcpCommands.restart({ transport: args.transport as any, port: args.port as number | undefined, background: !!args.background, debug: !!args.debug });
-          })
-          .command('status', 'Show MCP server status', (y: Argv) => y, (args: any) => {
-            mcpCommands.status({ json: !!args.json, verbose: !!args.verbose });
-          })
-          .demandCommand(1, 'Specify an mcp subcommand.')
-      , () => {})
+      , async (args: any) => {
+        await apiCommands.run({
+          port: args.port as number | undefined,
+          token: args.token as string | undefined,
+          debug: !!args.debug
+        });
+      })
     .command(
       'config <subcommand>',
       'Manage copilot-cli configuration',
@@ -191,28 +149,23 @@ let parser = yargs(argv)
         y
           .command('get <key>', 'Get configuration value', (y: Argv) => y.positional('key', { type: 'string' }), (args: any) => {
             if (!args.key) return exitUsage('Key required for config get');
-            configCommands.get(args.key as string);
+            return configCommands.get(args.key as string);
           })
           .command('set <key> <value>', 'Set configuration value', (y: Argv) => y.positional('key', { type: 'string' }).positional('value', { type: 'string' }), (args: any) => {
             if (!args.key || !args.value) return exitUsage('Key and value required for config set');
-            configCommands.set(args.key as string, args.value as string);
+            return configCommands.set(args.key as string, args.value as string);
           })
           .command('list', 'Show all configuration', () => {}, () => {
-            configCommands.list();
+            return configCommands.list();
           })
           .command('reset', 'Reset to defaults', () => {}, () => {
-            configCommands.reset();
+            return configCommands.reset();
+          })
+          .command('doctor', 'Validate configuration file and environment overrides', () => {}, () => {
+            return configCommands.doctor();
           })
           .demandCommand(1, 'Specify a config subcommand.')
       , () => {})
-    .command(
-      'status',
-      'Show status of running services',
-      (y: Argv) => y,
-      (args: any) => {
-        statusCommand.status({ json: !!args.json, verbose: !!args.verbose });
-      }
-    )
     .command(
       'chat <prompt...>',
       'Send a prompt to GitHub Copilot',
@@ -242,32 +195,6 @@ let parser = yargs(argv)
           })
           .demandCommand(1, 'Specify a model subcommand.')
       , () => {})
-    // Aliases: verb-first service control
-    .command(
-      'service <verb> <target>',
-      'Control services (alias for api/mcp commands)',
-      (y: Argv) => commonServiceOptions(y)
-        .positional('verb', { choices: ['start', 'stop', 'restart', 'status'] as const, type: 'string' })
-        .positional('target', { choices: ['api', 'mcp'] as const, type: 'string' })
-        .option('token', { type: 'string', describe: 'Override auth token (api only)' })
-        .option('transport', { type: 'string', choices: ['stdio', 'tcp', 'sse'] as const, describe: 'Transport (mcp only)' })
-  .middleware((args: any) => { /* no-op for now */ })
-      , async (args: any) => {
-        const verb = args.verb as 'start' | 'stop' | 'restart' | 'status';
-        const target = args.target as 'api' | 'mcp';
-        if (target === 'api') {
-          if (verb === 'start') return apiCommands.start({ port: args.port as number | undefined, host: args.host as string | undefined, token: args.token as string | undefined, background: !!args.background, debug: !!args.debug });
-          if (verb === 'stop') return apiCommands.stop();
-          if (verb === 'restart') return apiCommands.restart({ port: args.port as number | undefined, host: args.host as string | undefined, token: args.token as string | undefined, background: !!args.background, debug: !!args.debug });
-          if (verb === 'status') return apiCommands.status({ json: !!args.json, verbose: !!args.verbose });
-        } else if (target === 'mcp') {
-          if (verb === 'start') return mcpCommands.start({ transport: args.transport as any, port: args.port as number | undefined, background: !!args.background, debug: !!args.debug });
-          if (verb === 'stop') return mcpCommands.stop();
-          if (verb === 'restart') return mcpCommands.restart({ transport: args.transport as any, port: args.port as number | undefined, background: !!args.background, debug: !!args.debug });
-          if (verb === 'status') return mcpCommands.status({ json: !!args.json, verbose: !!args.verbose });
-        }
-      }
-    )
     // Shell completion support
     .completion('completion', false);
 

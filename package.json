@@ -1,7 +1,7 @@
 {
   "name": "copilot-cli",
   "version": "1.0.0",
-  "description": "GitHub Copilot CLI tool that exposes an API and MCP server",
+  "description": "GitHub Copilot CLI tool with an OpenAI-compatible API proxy",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -23,13 +23,11 @@
     "openai",
     "proxy",
     "api",
-    "mcp",
     "cli"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.1.0",
     "express": "^4.18.2",
     "yargs": "^17.7.2",
     "zod": "^3.22.4"
