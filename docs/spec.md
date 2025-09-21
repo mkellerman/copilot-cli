@@ -131,7 +131,7 @@ Advanced/developer commands hidden from most users.
 - Most commands require a valid Copilot token (via `profile login` or `--token`).
 - `exec` injects the appropriate environment variables for Anthropic-compatible tools:
   - `ANTHROPIC_API_URL` / `ANTHROPIC_BASE_URL`
-  - `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`
+  - `ANTHROPIC_AUTH_TOKEN`
 - When no token is available, placeholders are injected so downstream CLIs can still start in "local commands only" mode.
 - Structured logs controlled by `--verbose` redact sensitive data at level 3.
 - Model catalog refresh/TTL/stale intervals use sensible defaults, configurable via `profile set`.

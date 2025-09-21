@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ConfigManager } from '../../core/config-manager.js';
+import { coerceModelToKnown } from '../../core/model-selector.js';
 import { getLevel, log } from '../../core/logger.js';
 import { CopilotHttpClient } from '../../core/copilot-client.js';
 import { resolveActiveToken } from './auth.js';
@@ -71,6 +72,13 @@ export function registerAnthropicRoutes(app: any, token: string | undefined, ses
     }
 
     completionRequest.stream = false;
+
+    const requestedModel = completionRequest.model;
+    const selection = coerceModelToKnown(requestedModel, defaultModel, activeToken);
+    if (selection.fallback && requestedModel && requestedModel !== selection.model && getLevel() >= 1) {
+      log(1, 'model', `Falling back to default model ${selection.model} (requested ${requestedModel})`);
+    }
+    completionRequest.model = selection.model;
 
     try {
       if (transformsEnabled()) {

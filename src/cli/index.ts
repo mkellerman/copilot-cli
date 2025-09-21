@@ -11,6 +11,15 @@ import * as profileCommands from './commands/profile/index.js';
 import * as devCommands from './commands/dev/index.js';
 import { requireActiveProfile, getProvider } from './commands/profile/shared.js';
 
+// Global legacy notice tracking - must be declared early to avoid hoisting issues
+const legacyNotices = new Set<string>();
+
+function warnLegacyUsage(message: string): void {
+  if (legacyNotices.has(message)) return;
+  legacyNotices.add(message);
+  console.warn(`[deprecated] ${message}`);
+}
+
 const argv = process.argv.slice(2);
 
 let pkgVersion: string | undefined;
@@ -703,14 +712,6 @@ function parseBooleanArg(value: unknown): boolean {
   if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
   if (['false', '0', 'no', 'n'].includes(normalized)) return false;
   throw new Error('Expected boolean value (true/false)');
-}
-
-const legacyNotices = new Set<string>();
-
-function warnLegacyUsage(message: string): void {
-  if (legacyNotices.has(message)) return;
-  legacyNotices.add(message);
-  console.warn(`[deprecated] ${message}`);
 }
 
 function collectLegacyExecArgs(commandName: string): string[] {

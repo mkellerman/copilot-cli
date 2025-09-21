@@ -8,6 +8,7 @@ import type { Server } from 'node:http';
 import { startApiServer } from '../../api/server.js';
 import { ConfigManager } from '../../core/config-manager.js';
 import { getValidToken } from '../../core/auth.js';
+import { prefetchModelsForToken, resolveProfileIdForToken } from '../../core/model-selector.js';
 import { loadAuthInfo, loadToken } from '../../config/index.js';
 
 export type ExecProvider = 'anthropic' | 'openai';
@@ -26,6 +27,7 @@ export async function runExecAdapter(options: ExecAdapterOptions): Promise<void>
   const debug = config.get<boolean>('debug') ?? false;
 
   const { prunedArgs, verboseLevel } = extractVerbose(args);
+  const childArgs = injectLiteralSentinel(prunedArgs);
   const effectiveVerbose = normalizeVerbose(globalVerbose ?? verboseLevel);
   if (typeof effectiveVerbose === 'number') {
     process.env.COPILOT_VERBOSE = String(effectiveVerbose);
@@ -42,6 +44,7 @@ export async function runExecAdapter(options: ExecAdapterOptions): Promise<void>
   }
 
   const token = await resolveToken();
+  const profileId = resolveProfileIdForToken(token);
 
   const host = '127.0.0.1';
   const requestedPort = 0;
@@ -60,9 +63,11 @@ export async function runExecAdapter(options: ExecAdapterOptions): Promise<void>
 
     announceProxy(apiUrl, logPath, token);
 
-    const childEnv = buildProviderEnv(provider, apiUrl, token);
+    await prefetchModelsForToken(token);
 
-    const child = spawn(command, prunedArgs, {
+    const childEnv = buildProviderEnv(provider, apiUrl, token, profileId);
+
+    const child = spawn(command, childArgs, {
       stdio: 'inherit',
       env: childEnv
     });
@@ -115,30 +120,57 @@ function announceProxy(apiUrl: string, logPath?: string, token?: string | null) 
   }
 }
 
-function buildProviderEnv(provider: ExecProvider, baseUrl: string, token: string | null): NodeJS.ProcessEnv {
+function buildProviderEnv(
+  provider: ExecProvider,
+  baseUrl: string,
+  token: string | null,
+  profileId?: string
+): NodeJS.ProcessEnv {
   const env = { ...process.env } as NodeJS.ProcessEnv;
-  const placeholderOpenAI = 'sk-local-dummy';
-  const placeholderAnthropic = 'anthropic-local-dummy';
+  const openaiToken = token ?? 'sk-local-dummy';
+  const anthropicToken = token ?? 'anthropic-local-dummy';
 
-  switch (provider) {
-    case 'anthropic':
-      return {
-        ...env,
-        ANTHROPIC_BASE_URL: baseUrl,
-        ANTHROPIC_API_URL: baseUrl,
-        // ANTHROPIC_API_KEY: token ?? placeholderAnthropic,
-        ANTHROPIC_AUTH_TOKEN: token ?? placeholderAnthropic
-      };
-    case 'openai':
-      return {
-        ...env,
-        OPENAI_BASE_URL: baseUrl,
-        OPENAI_API_BASE: baseUrl,
-        OPENAI_API_KEY: token ?? placeholderOpenAI
-      };
-    default:
-      return env;
+  return {
+    ...env,
+    COPILOT_EXEC_PROVIDER: provider,
+    COPILOT_API_BASE_URL: baseUrl,
+    COPILOT_ACTIVE_PROFILE: profileId ?? env.COPILOT_ACTIVE_PROFILE,
+    OPENAI_BASE_URL: baseUrl,
+    OPENAI_API_BASE: baseUrl,
+    OPENAI_API_KEY: openaiToken,
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_API_URL: baseUrl,
+    // ANTHROPIC_API_KEY: anthropicToken,
+    ANTHROPIC_AUTH_TOKEN: anthropicToken
+  };
+}
+
+function injectLiteralSentinel(argv: string[]): string[] {
+  if (argv.length === 0) {
+    return argv;
   }
+
+  const printIndex = argv.findIndex((arg) => arg === '-p' || arg === '--print');
+  if (printIndex === -1) {
+    return argv;
+  }
+
+  const firstPromptIndex = printIndex + 1;
+  if (firstPromptIndex >= argv.length) {
+    return argv;
+  }
+
+  if (argv[firstPromptIndex] === '--') {
+    return argv;
+  }
+
+  if (!argv[firstPromptIndex].startsWith('-')) {
+    return argv;
+  }
+
+  const copy = [...argv];
+  copy.splice(firstPromptIndex, 0, '--');
+  return copy;
 }
 
 function extractVerbose(argv: string[]): { prunedArgs: string[]; verboseLevel?: number } {

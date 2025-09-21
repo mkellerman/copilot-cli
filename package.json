@@ -17,7 +17,9 @@
     "smoke:external": "tsx src/dev/smoke-external.ts",
     "link": "npm link",
     "unlink": "npm unlink",
-    "postinstall": "npm run build"
+    "postinstall": "npm run build",
+    "test:exec": "npm run build && node --test tests/exec/*.test.js",
+    "test:exec-live-claude": "npm run build && RUN_LIVE_EXEC_CLAUDE=1 node --test tests/exec/cli-exec-live-claude.test.js"
   },
   "keywords": [
     "github",
@@ -40,7 +42,8 @@
     "@types/node": "^22.10.5",
     "@types/yargs": "^17.0.33",
     "tsx": "^4.7.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "undici": "^6.21.3"
   },
   "engines": {
     "node": ">=14.0.0"

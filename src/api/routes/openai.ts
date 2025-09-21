@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ConfigManager } from '../../core/config-manager.js';
+import { coerceModelToKnown } from '../../core/model-selector.js';
 import { getLevel, log } from '../../core/logger.js';
 import { CopilotHttpClient, type CopilotChatCompletionRequest } from '../../core/copilot-client.js';
 import { resolveActiveToken } from './auth.js';
@@ -61,6 +62,13 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
       logit_bias: req.body.logit_bias,
       user: req.body.user
     };
+
+    const requestedModel = payload.model;
+    const selection = coerceModelToKnown(requestedModel, defaultModel, activeToken);
+    if (selection.fallback && requestedModel && requestedModel !== selection.model && getLevel() >= 1) {
+      log(1, 'model', `Falling back to default model ${selection.model} (requested ${requestedModel})`);
+    }
+    payload.model = selection.model;
 
     const abortController = new AbortController();
     const handleClose = () => {

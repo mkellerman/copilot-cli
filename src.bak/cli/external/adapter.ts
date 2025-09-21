@@ -52,6 +52,13 @@ export async function runCliAdapter(options: CliAdapterOptions): Promise<void> {
     } else {
       console.log('[debug] No token found; continuing for local commands.');
     }
+  } else if (debug) {
+    // In debug mode, show token type for diagnostics
+    const tokenType = token.startsWith('tid=') ? 'Copilot session' : 
+                     token.startsWith('gho_') ? 'GitHub OAuth' :
+                     token.startsWith('ghp_') ? 'GitHub Personal Access' :
+                     'Unknown';
+    console.log(`[debug] Using ${tokenType} token: ${token.substring(0, 20)}...`);
   }
 
   const host = '127.0.0.1';
@@ -75,10 +82,12 @@ export async function runCliAdapter(options: CliAdapterOptions): Promise<void> {
     const actualPort = (address as AddressInfo).port;
     const apiUrl = `http://${host}:${actualPort}`;
 
-    console.log(`Using temporary proxy at ${apiUrl}`);
-    if (logPath) {
-      const relative = toRelativePath(logPath);
-      console.log(`Verbose logs : ${relative}`);
+    if (verbose > 0) {
+      console.log(`Using temporary proxy at ${apiUrl}`);
+      if (logPath) {
+        const relative = toRelativePath(logPath);
+        console.log(`Verbose logs : ${relative}`);
+      }
     }
 
     const env = buildProviderEnv(provider, apiUrl, token);
@@ -133,7 +142,7 @@ function buildProviderEnv(provider: ProviderKind, baseUrl: string, token: string
         ANTHROPIC_BASE_URL: baseUrl,
         ANTHROPIC_API_URL: baseUrl,
         ANTHROPIC_AUTH_TOKEN: token ?? placeholderAnthropic,
-        ANTHROPIC_API_KEY: token ?? placeholderAnthropic
+        // ANTHROPIC_API_KEY: token ?? placeholderAnthropic
       };
     case 'openai':
       return {
@@ -209,11 +218,13 @@ function toRelativePath(absolutePath: string): string {
 }
 
 async function resolveToken(): Promise<string | null> {
+  // Use the self-healing getValidToken which handles auto-conversion and refresh
   const refreshed = await getValidToken();
   if (refreshed) {
     return refreshed;
   }
 
+  // Fallback to legacy methods for compatibility
   const info = loadAuthInfo();
   if (info?.token) {
     return info.token;

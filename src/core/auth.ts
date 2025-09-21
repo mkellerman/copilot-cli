@@ -271,25 +271,68 @@ export async function getValidToken(): Promise<string | null> {
     return null;
   }
   
-  // Test if token is valid
-  const isValid = await copilotClient.verifyModel(profile.token, 'gpt-4');
+  // Step 1: Auto-detect and convert token type if needed
+  const processedToken = await autoHealToken(profile.token, profile.githubToken);
+  if (!processedToken) {
+    // Check if we have other profiles that might work
+    const workingProfile = findWorkingProfile(profiles);
+    if (workingProfile && workingProfile !== activeProfile) {
+      console.error(`Error: Current profile (${activeProfile}) doesn't have valid Copilot access.`);
+      console.error(`Try switching to: copilot profile switch ${workingProfile}`);
+      console.error('Or run: copilot profile login');
+    }
+    return null;
+  }
+  
+  // Step 2: Test if token is valid with lightweight verification
+  const isValid = await copilotClient.verifyModel(processedToken, 'gpt-4');
 
   if (isValid) {
-    return profile.token;
+    // Step 3: Update profile if token was converted
+    if (processedToken !== profile.token) {
+      saveAuthProfile(activeProfile, {
+        ...profile,
+        token: processedToken,
+        timestamp: Date.now()
+      });
+    }
+    
+    // Step 4: Trigger background model catalog refresh if stale
+    void autoRefreshModelCatalog(activeProfile, processedToken);
+    
+    return processedToken;
   }
 
-  // Token is invalid/expired, try to refresh silently
+  // Token is invalid/expired, try to refresh from GitHub token
   if (profile.githubToken) {
     try {
       const newToken = await getCopilotToken(profile.githubToken);
+      // Check if conversion actually worked
+      if (newToken === profile.githubToken) {
+        console.error(`Error: GitHub account for profile (${activeProfile}) doesn't have Copilot access.`);
+        const workingProfile = findWorkingProfile(profiles);
+        if (workingProfile && workingProfile !== activeProfile) {
+          console.error(`Try switching to: copilot profile switch ${workingProfile}`);
+        } else {
+          console.error('Run: copilot profile login');
+        }
+        return null;
+      }
+      
       saveAuthProfile(activeProfile, {
         ...profile,
         token: newToken,
         timestamp: Date.now()
       });
+      
+      // Trigger fresh model catalog refresh
+      void autoRefreshModelCatalog(activeProfile, newToken);
+      
       return newToken;
     } catch (error) {
-      console.error('Failed to refresh token automatically. Run: copilot profile login');
+      if (process.env.DEBUG) {
+        console.error('[auth] Failed to refresh token automatically:', error);
+      }
     }
   }
 
@@ -390,4 +433,90 @@ async function testWorkingModels(token: string, allModels: string[]): Promise<st
 
 async function testSingleModel(token: string, modelId: string): Promise<boolean> {
   return copilotClient.verifyModel(token, modelId);
+}
+
+/**
+ * Auto-healing token processor that detects token type and converts if needed
+ */
+async function autoHealToken(currentToken: string, githubToken?: string): Promise<string | null> {
+  if (!currentToken) return null;
+  
+  // If already a Copilot session token, return as-is
+  if (currentToken.startsWith('tid=')) {
+    return currentToken;
+  }
+  
+  // If it's a GitHub OAuth token, try to convert it
+  if (currentToken.startsWith('gho_') && githubToken) {
+    try {
+      if (process.env.DEBUG) {
+        console.log('[auth] Auto-converting GitHub OAuth token to Copilot session token');
+      }
+      const convertedToken = await getCopilotToken(githubToken);
+      
+      // If conversion failed (returned same token), this means no Copilot access
+      if (convertedToken === githubToken) {
+        if (process.env.DEBUG) {
+          console.log('[auth] Token conversion failed - GitHub account may not have Copilot access');
+        }
+        return null;
+      }
+      
+      return convertedToken;
+    } catch (error) {
+      if (process.env.DEBUG) {
+        console.error('[auth] Token conversion failed:', error);
+      }
+      return null;
+    }
+  }
+  
+  // For other token types, return as-is and let validation handle it
+  return currentToken;
+}
+
+/**
+ * Find a profile that likely has working Copilot access
+ */
+function findWorkingProfile(profiles: Record<string, any>): string | null {
+  for (const [profileId, profile] of Object.entries(profiles)) {
+    // Prefer VSCode profiles or profiles with tid= tokens
+    if (profile.provider === 'vscode' || profile.token?.startsWith('tid=')) {
+      return profileId;
+    }
+  }
+  return null;
+}
+
+/**
+ * Background model catalog refresh to keep models up-to-date
+ */
+async function autoRefreshModelCatalog(profileId: string, token: string): Promise<void> {
+  const catalog = modelCatalog;
+  const entry = catalog.getEntry(profileId);
+  
+  // Only refresh if catalog is stale (older than 10 minutes) or empty
+  const staleThreshold = 10 * 60 * 1000; // 10 minutes
+  const isStale = !entry || 
+    entry.models.length === 0 || 
+    (Date.now() - entry.updatedAt) > staleThreshold;
+  
+  if (!isStale) return;
+  
+  try {
+    if (process.env.DEBUG) {
+      console.log('[auth] Auto-refreshing model catalog for profile:', profileId);
+    }
+    
+    await catalog.ensureFreshProfile(profileId, token, {
+      verify: false, // Don't verify in background for performance
+      staleAfterMs: staleThreshold,
+      source: 'scheduled'
+    });
+  } catch (error) {
+    if (process.env.DEBUG) {
+      console.error('[auth] Background model catalog refresh failed:', error);
+    }
+    // Silently fail for background operations
+  }
 }

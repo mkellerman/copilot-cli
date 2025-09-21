@@ -1,7 +1,7 @@
 Here’s an expanded table of CLI coding agents with the Command, ENV_URL_NAME, and ENV_TOKEN_NAME conventions they use (based on docs and community usage).
 
 Name	Command	ENV_URL_NAME	ENV_TOKEN_NAME
-Claude Code	claude	ANTHROPIC_API_URL	ANTHROPIC_API_KEY
+Claude Code	claude	ANTHROPIC_API_URL	ANTHROPIC_AUTH_TOKEN
 OpenAI Codex	codex	OPENAI_API_BASE	OPENAI_API_KEY
 Gemini CLI	gemini	GOOGLE_API_URL	GOOGLE_API_KEY
 Aider	aider	OPENAI_API_BASE	OPENAI_API_KEY
