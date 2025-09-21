@@ -3,7 +3,7 @@ export interface InChatCommand {
   args: string[];
 }
 
-const DEFAULT_TRIGGERS = ['//', '!!', '--', '--'];
+const DEFAULT_TRIGGERS = ['::'];
 
 export function getCommandTriggers(): string[] {
   const raw = process.env.COPILOT_CMD_TRIGGERS;

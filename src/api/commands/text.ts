@@ -14,12 +14,13 @@ export function renderCommandText(
 
   switch (command) {
     case '--help':
-      lines.push('In-chat commands:');
-      lines.push(`Prefix: ${triggers.join(', ')} (default '${primary}')`);
-      lines.push(`${primary}help                 show this help`);
-      lines.push(`${primary}models               list available models`);
-      lines.push(`${primary}set-model <anthropic> <copilot>   override mapping for this session`);
-      lines.push(`${primary}reset-models         restore default session mappings`);
+      lines.push('Copilot CLI In-Chat Commands:');
+      lines.push('  ::help                 Show this help message');
+      lines.push('  ::models               List available models');
+      lines.push('  ::config               Show all configuration');
+      lines.push('  ::config <key>         Show value for a config key');
+      lines.push('  ::config set <key> <value>  Set a config value');
+  // Removed session-scoped commands; only persistent settings remain
       break;
     case '--models':
       lines.push('Mapped models:');
@@ -31,16 +32,7 @@ export function renderCommandText(
         }
       }
       break;
-    case '--set-model': {
-      const message = applySetModelCommand(args, overrides);
-      lines.push(message);
-      break;
-    }
-    case '--reset-models': {
-      const message = applyResetModelsCommand(overrides);
-      lines.push(message);
-      break;
-    }
+    // Removed session-scoped commands
     default:
       lines.push(`Unknown in-chat command: ${command}`);
       lines.push('Try --help for available commands.');
