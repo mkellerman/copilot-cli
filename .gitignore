@@ -1,6 +1,12 @@
 node_modules/
 dist/
 build/
+logs/
+src.bak/
+tests/exec/*.test.js
+tests/exec/helpers.js
+tests/exec/mock-copilot.js
+tests/exec/stubs.js
 *.log
 *.local
 .env
