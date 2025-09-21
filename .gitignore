@@ -1,12 +1,6 @@
 node_modules/
 dist/
 build/
-logs/
-src.bak/
-tests/exec/*.test.js
-tests/exec/helpers.js
-tests/exec/mock-copilot.js
-tests/exec/stubs.js
 *.log
 *.local
 .env
@@ -19,6 +13,15 @@ tests/exec/stubs.js
 *~
 .npm/
 .cache/
+
+# Ignore test results
+coverage/
+*.test-results.json
+*.test-results.xml
+*.lcov
+*.nyc_output/
+test-results/
+logs/
 
 # BMAD-specific ignores
 .bmad-core/
