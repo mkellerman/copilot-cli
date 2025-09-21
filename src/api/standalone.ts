@@ -8,7 +8,7 @@ const token = authInfo?.token || loadToken();
 
 if (!token) {
   console.error('Error: Not authenticated');
-  console.error('Run: copilot-cli auth login');
+  console.error('Run: copilot profile login');
   process.exit(1);
 }
 

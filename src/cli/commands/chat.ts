@@ -33,7 +33,7 @@ async function makeRequest(token: string, prompt: string): Promise<ChatResponse>
         const parsed = JSON.parse(text);
         message = parsed?.error?.message || message;
       } catch {
-        // ignore parse errors, use raw text
+        // ignore
       }
     }
     throw new Error(message);
@@ -50,20 +50,21 @@ async function makeRequest(token: string, prompt: string): Promise<ChatResponse>
   }
 }
 
-export async function chat(prompt: string): Promise<void> {
+export async function runChatCommand(prompt: string): Promise<void> {
   const token = await getValidToken();
-  
+
   if (!token) {
     console.error('Error: Not authenticated or unable to refresh token');
-    console.error('Run: copilot-cli auth login');
+    console.error('Run: copilot profile login');
     process.exit(1);
   }
-  
+
   try {
     const response = await makeRequest(token, prompt);
-    
-    if (response.choices && response.choices[0]?.message?.content) {
-      console.log(response.choices[0].message.content);
+
+    const content = response.choices?.[0]?.message?.content;
+    if (content) {
+      console.log(content);
     } else {
       console.error('No response from Copilot');
     }

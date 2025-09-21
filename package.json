@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "copilot-cli": "./bin/cli.js"
+    "copilot": "./bin/copilot.js",
+    "copilot-cli": "./bin/copilot.js"
   },
   "scripts": {
     "build": "tsc",
@@ -13,6 +14,7 @@
     "start": "node dist/cli/index.js",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
+    "smoke:external": "tsx src/dev/smoke-external.ts",
     "link": "npm link",
     "unlink": "npm unlink",
     "postinstall": "npm run build"
@@ -28,6 +30,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.2.0",
     "express": "^4.18.2",
     "yargs": "^17.7.2",
     "zod": "^3.22.4"

@@ -289,7 +289,7 @@ export async function getValidToken(): Promise<string | null> {
       });
       return newToken;
     } catch (error) {
-      console.error('Failed to refresh token automatically. Run: copilot-cli auth login');
+      console.error('Failed to refresh token automatically. Run: copilot profile login');
     }
   }
 

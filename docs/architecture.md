@@ -41,6 +41,7 @@ This is a Node.js/TypeScript CLI and lightweight API proxy that exposes GitHub C
 | Runtime | Node.js (>=14) | `package.json` engines: ">=14.0.0" |
 | Language | TypeScript | ^5.x used in devDependencies |
 | Server framework | Express | ^4.18.2 |
+| MCP SDK | @modelcontextprotocol/sdk | ^1.2.0 |
 | Validation | zod | ^3.22.4 |
 | Dev tools | tsx, tsc | used for dev and build |
 
@@ -62,6 +63,7 @@ This is a Node.js/TypeScript CLI and lightweight API proxy that exposes GitHub C
 │   │   └── config-manager.ts
 │   ├── config/            # Config constants and storage helpers
 │   │   └── index.ts
+│   ├── mcp/               # MCP server bootstrap and tools
 │   └── ...                # other modules (handlers, routes, utils)
 ├── docs/                  # Help pages and generated docs
 ├── .bmad-core/            # BMAD task templates, checklists, and agent tooling
@@ -72,7 +74,7 @@ This is a Node.js/TypeScript CLI and lightweight API proxy that exposes GitHub C
 
 ## Key modules and purpose (actual)
 
-- `src/cli/index.ts` — CLI entry point. Implements a simple dispatcher for commands: `auth`, `api`, `config`, `chat`, `model`. It parses a small set of flags and delegates to command modules under `src/cli/commands`.
+- `src/cli/index.ts` — CLI entry point. Implements a simple dispatcher for commands: `auth`, `api`, `mcp`, `claude`, `happy`, `config`, `chat`, `model`. It parses a small set of flags and delegates to command modules under `src/cli/commands`.
 
 - `src/api/server.ts` — Express server that exposes OpenAI-compatible endpoints:
   - GET `/` health/info
@@ -198,7 +200,23 @@ The following sections expand on the highest-priority modules (auth, api, config
 - Responsibilities:
    - Parse arguments, map commands to modules, and provide help text.
 - Notes:
-   - The CLI is intentionally minimal. When adding commands, follow the existing `parseOptions` pattern to keep parity.
+   - The CLI is intentionally minimal. When adding commands, follow the existing passthrough pattern to keep parity.
+   - External CLI adapter: `src/cli/external/adapter.ts` provides a generic wrapper to:
+     1) Start a temporary API proxy bound to `127.0.0.1` on an ephemeral port.
+     2) Populate environment variables for a provider contract:
+        - Anthropic: `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_URL`, and `ANTHROPIC_AUTH_TOKEN` / `~ANTHROPIC_API_KEY~`.
+        - OpenAI: `OPENAI_BASE_URL` / `OPENAI_API_BASE`, and `OPENAI_API_KEY`.
+     3) Spawn the external binary (e.g., `claude`, `happy`) with stdio inherited and forward all unknown args.
+     4) Handle SIGINT/SIGTERM and map signal exits to conventional codes (130/143).
+   - `claude` and `happy` commands use the adapter with provider=anthropic.
+   - Users can send in-chat commands (e.g., `--help`, `--models`, `--set-model`, `--reset-models`) during the session to inspect or tweak Anthropic→Copilot model mappings without restarting the proxy.
+
+### MCP (concise)
+
+- Files: `src/mcp/server.ts`, `src/mcp/tools/*`
+- Responsibilities:
+   - Host an MCP server over stdio with a small set of tools (`/copilot`, `/copilot-auth`).
+   - Delegate chat completions to the shared Copilot HTTP client and surface auth/catalog status to hosts.
 
 ## Troubleshooting & developer tips
 
@@ -206,6 +224,7 @@ The following sections expand on the highest-priority modules (auth, api, config
    - Confirm config dir: `ls -la ~/.copilot-cli`
    - Validate token presence: `cat ~/.copilot-cli/token` (or inspect `profiles.json`)
    - Start API server for smoke test: `copilot-cli api --token <token>` then `curl http://localhost:3000/`
+   - Test Claude wrapper: `copilot-cli claude --help`
 
 - Common failures and how to debug:
    - Upstream 401/403: token expired or invalid — run `copilot-cli auth login` and re-run the failing request.

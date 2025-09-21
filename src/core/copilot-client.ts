@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { getLevel, log, redactHeaders } from './logger.js';
 
 const DEFAULT_BASE_URL = 'https://api.githubcopilot.com';
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -200,6 +201,16 @@ export class CopilotHttpClient {
       timeout.unref?.();
 
       try {
+        if (getLevel() >= 2) {
+          const info: any = { method, path: url.pathname };
+          if (getLevel() >= 3) {
+            info.headers = redactHeaders(defaultHeaders);
+            if (requestBody && typeof requestBody === 'string' && requestBody.length < 4096) {
+              try { info.body = JSON.parse(requestBody); } catch { info.body = '[string]'; }
+            }
+          }
+          log(2, 'upstream', 'request', info);
+        }
         const response = await fetch(url, {
           method,
           headers: defaultHeaders,
@@ -213,9 +224,14 @@ export class CopilotHttpClient {
 
         clearTimeout(timeout);
 
+        if (getLevel() >= 2) {
+          log(2, 'upstream', 'response', { status: response.status, path: url.pathname });
+        }
+
         if (this.shouldRetry(response) && attempt < this.maxRetries) {
           await response.body?.cancel?.();
           this.telemetry?.onRetry?.({ attempt, path: url.pathname, method, status: response.status });
+          if (getLevel() >= 2) log(2, 'upstream', 'retrying', { attempt: attempt + 1, status: response.status });
           await delay(this.backoff(attempt));
           continue;
         }
@@ -234,15 +250,19 @@ export class CopilotHttpClient {
 
         if (attempt < this.maxRetries) {
           this.telemetry?.onRetry?.({ attempt, path: url.pathname, method, error });
+          if (getLevel() >= 2) log(2, 'upstream', 'retrying after error', { attempt: attempt + 1, error: (error as any)?.message || String(error) });
           await delay(this.backoff(attempt));
           continue;
         }
 
         if (error instanceof Error) {
+          if (getLevel() >= 1) log(1, 'upstream', 'error', { message: error.message, path: url.pathname });
           throw error;
         }
 
-        throw new Error('Unknown error during Copilot request');
+        const msg = 'Unknown error during Copilot request';
+        if (getLevel() >= 1) log(1, 'upstream', 'error', { message: msg, path: url.pathname });
+        throw new Error(msg);
       }
     }
 

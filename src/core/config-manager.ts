@@ -304,6 +304,8 @@ function normalizeValue(path: ConfigPath, value: unknown): unknown {
     case 'catalog.staleMinutes':
       return parseInteger(path)(value);
     case 'debug':
+    case 'transforms.enabled':
+    case 'transforms.allowScripts':
       return parseBoolean(value);
     default:
       return value;
