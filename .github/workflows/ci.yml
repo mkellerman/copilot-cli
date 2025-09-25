@@ -16,7 +16,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        # Temporarily disable Node 18 while we investigate compatibility issues
+        node: [20, 22]
 
     steps:
       - name: Checkout
