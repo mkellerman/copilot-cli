@@ -16,6 +16,10 @@ jobs:
   autobuild:
     name: CodeQL Autobuild (prepare analysis)
     runs-on: ubuntu-latest
+    # Avoid running autobuild on forked PRs which lack permissions for telemetry
+    # and SARIF uploads. This prevents "Resource not accessible by integration"
+    # warnings in logs when the workflow is triggered from a fork.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
