@@ -81,7 +81,17 @@ export async function runCopilot(context, cliArgs, options = {}) {
     COPILOT_CMD_TRIGGERS: '::',
     COPILOT_MOCK_MODELS: JSON.stringify(context.models),
     COPILOT_MOCK_LOG: context.mockLog,
-    NODE_OPTIONS: process.env.NODE_OPTIONS,
+    // Preload a small CommonJS loader that imports the ESM mock-copilot so the
+    // MockAgent is registered in spawned child Node processes. Preserve any
+    // existing NODE_OPTIONS set by the environment.
+    NODE_OPTIONS: [
+      process.env.NODE_OPTIONS,
+      '-r',
+      // Use an absolute path to the loader file inside the tests/exec directory
+      path.join(PROJECT_ROOT, 'tests', 'exec', 'mock-copilot-loader.cjs')
+    ]
+      .filter(Boolean)
+      .join(' '),
     COPILOT_MOCK_RESPONSE_TEXT: options.mockResponseText ?? 'mocked-response'
   };
 

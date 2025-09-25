@@ -175,11 +175,38 @@ function extractAssistantContent(response: any): string {
   if (!Array.isArray(choices) || choices.length === 0) {
     return '';
   }
-  const message = choices[0]?.message;
-  if (!message) {
-    return choices[0]?.content ?? '';
+  const first = choices[0];
+  const message = first?.message;
+  const content = message ? message.content : first?.content;
+
+  // string content
+  if (typeof content === 'string') return content;
+
+  // array of content blocks [{ type, text }]
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (typeof block === 'string') return block;
+        if (block && typeof block === 'object' && typeof block.text === 'string') return block.text;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
   }
-  return message.content ?? '';
+
+  // single object with text field
+  if (content && typeof content === 'object') {
+    if (typeof content.text === 'string') return content.text;
+    // nested content arrays
+    if (Array.isArray((content as any).content)) {
+      return (content as any).content
+        .map((b: any) => (b && typeof b.text === 'string' ? b.text : ''))
+        .filter(Boolean)
+        .join('\n');
+    }
+  }
+
+  return '';
 }
 
 function determineStopReason(response: any): 'end_turn' | 'max_tokens' | null {

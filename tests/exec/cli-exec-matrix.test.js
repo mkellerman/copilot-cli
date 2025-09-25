@@ -233,6 +233,7 @@ fallbackScenarios.forEach((scenario, index) => {
       { env: { CLAUDE_TEST_MODEL: scenario.requestModel }, mockResponseText: scenario.responseText }
     );
     assert.strictEqual(result.exitCode, 0, `stderr: ${result.stderr}`);
+  // (debug prints removed)
 
     const payload = extractJsonPayload(result.stdout);
     assert.strictEqual(readResponseText(payload), scenario.responseText);

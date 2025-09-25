@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ConfigManager } from '../../core/config-manager.js';
+// ...existing code...
 import { coerceModelToKnown } from '../../core/model-selector.js';
 import { getLevel, log } from '../../core/logger.js';
 import { CopilotHttpClient } from '../../core/copilot-client.js';
@@ -171,9 +172,14 @@ export function registerAnthropicRoutes(app: any, token: string | undefined, ses
         });
       }
 
+      // Debug: log the raw upstream payload when verbose level is high
+      if (getLevel() >= 3) log(3, 'upstream', 'raw-upstream-payload', payload);
+
       const anthropicModel = conversion?.requestedModel ?? defaultModel;
       if (transformsEnabled()) {
         payload = await runResponsePipeline('anthropic.messages', 'anthropic', anthropicModel, !!activeToken, { modelOverrides: sessionModelOverrides }, payload);
+        // Debug: log the payload after running response transforms
+        if (getLevel() >= 3) log(3, 'upstream', 'transformed-upstream-payload', payload);
       }
       const anthropicResponse = toAnthropicResponse(payload, anthropicModel);
       res.json(anthropicResponse);
