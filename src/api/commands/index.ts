@@ -35,10 +35,14 @@ export function parseInChatCommand(content: string): InChatCommand | null {
   if (!matched) return null;
   const withoutPrefix = trimmed.slice(matched.length).trim();
   if (!withoutPrefix) return null;
-  const parts = withoutPrefix.split(/\s+/);
-  const [first, ...args] = parts;
-  if (!first) return null;
-  // Normalize to canonical '--' prefix internally
-  const command = '--' + first;
+  // Accept both [arg] and arg, normalize by stripping brackets
+  const parts = withoutPrefix.split(/\s+/).map(arg => {
+    if (arg.startsWith('[') && arg.endsWith(']')) {
+      return arg.slice(1, -1);
+    }
+    return arg;
+  });
+  const [command, ...args] = parts;
+  if (!command) return null;
   return { command, args };
 }

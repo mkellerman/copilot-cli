@@ -70,7 +70,7 @@ async function makeRequest(token: string, prompt: string): Promise<ChatResponse>
 export async function runChatCommand(prompt: string): Promise<void> {
   // Check for in-chat command first
   const parsedCmd = parseInChatCommand(prompt);
-  if (parsedCmd && parsedCmd.command === '--models') {
+  if (parsedCmd && parsedCmd.command === 'models') {
     const token = await getValidToken();
     if (!token) {
       console.error('Error: Not authenticated or unable to refresh token');
@@ -88,40 +88,44 @@ export async function runChatCommand(prompt: string): Promise<void> {
         let selected = config.get<string>('model.default');
         if (!selected) selected = models[0].id;
 
-        console.log('Available models:');
+        let output = 'Available models:\n';
         for (const model of models) {
           if (model.id === selected) {
-            console.log(`* ${model.id}   ← currently selected`);
+            output += `    ▶ ${model.id}\n`;
           } else {
-            console.log(`  ${model.id}`);
+            output += `      ${model.id}\n`;
           }
         }
-  // Show how to set the model, using the first one as an example (in-chat command)
-  console.log('\nTo set the desired model, run:');
-  console.log(`  ::config set model.default ${models[0].id}`);
+        output += `\nCurrent default: ${selected}\n`;
+        output += '\nTo set the default model, run:\n';
+        output += `  ::config set model.default ${models[0].id}\n`;
+        if (!output.endsWith('\n')) output += '\n';
+        process.stdout.write(output);
+        return;
       }
     } catch (err: any) {
       console.error('Error fetching models:', err.message || err);
       process.exit(1);
     }
     return;
-  } else if (parsedCmd && parsedCmd.command === '--config') {
+  } else if (parsedCmd && parsedCmd.command === 'config') {
     const config = ConfigManager.getInstance();
     const args = parsedCmd.args;
     if (args.length === 0) {
       // List all config
       const all = config.list();
-      console.log('Current configuration:');
+      let output = 'Current configuration:\n';
       for (const [key, value] of Object.entries(all)) {
-        console.log(`  ${key}: ${JSON.stringify(value)}`);
+        output += `  ${key}: ${JSON.stringify(value)}\n`;
       }
+      console.log(output);
     } else if (args[0] === 'set' && args.length >= 3) {
       // Set config value
       const key = args[1];
       const value = args.slice(2).join(' ');
       try {
-        await config.set(key as any, value);
-        console.log(`Set ${key} = ${value}`);
+    await config.set(key as any, value);
+    console.log(`Set ${key} = ${value}`);
       } catch (err: any) {
         console.error(`Failed to set config: ${err.message || err}`);
         process.exit(1);
@@ -172,8 +176,8 @@ export async function runChatCommand(prompt: string): Promise<void> {
     }
     return;
   } else if (parsedCmd) {
-    // For other in-chat commands, use the default handler
-    const output = renderCommandText(parsedCmd.command, parsedCmd.args, new Map(), {});
+    // For other in-chat commands, use the default handler (plain text)
+    let output = renderCommandText(parsedCmd.command, parsedCmd.args, new Map(), {});
     console.log(output);
     return;
   }

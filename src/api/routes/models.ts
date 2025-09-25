@@ -3,17 +3,30 @@ import { ModelCatalog } from '../../core/model-catalog.js';
 import { getLevel, log } from '../../core/logger.js';
 import { testModels } from '../../core/auth.js';
 import type { ModelCatalogEntry } from '../../core/model-catalog.js';
-import { resolveActiveToken, resolveProfileIdForToken } from './auth.js';
+import { resolveActiveToken, resolveProfileIdForToken, refreshServerToken } from './auth.js';
 
 const modelCatalog = ModelCatalog.getInstance();
 
-export function registerModelsRoutes(app: any, token?: string) {
+export interface RegisterModelsOptions {
+  allowAnonymous?: boolean;
+}
+
+export function registerModelsRoutes(app: any, token?: string, options: RegisterModelsOptions = {}) {
+  const allowAnonymous = options.allowAnonymous ?? false;
   app.get('/v1/models', async (req: Request, res: Response) => {
     if (getLevel() >= 1) log(1, 'api', 'GET /v1/models');
-    const activeToken = resolveActiveToken(req, token);
+    let activeToken = await resolveActiveToken(req, token);
+    if (!activeToken) {
+      activeToken = await resolveActiveToken(req, token, { refreshIfMissing: true });
+    }
 
     if (!activeToken) {
+      if (allowAnonymous) {
+        if (getLevel() >= 1) log(1, 'auth', 'missing token for /v1/models, serving fallback');
+        return res.json(buildDefaultModelsResponse());
+      }
       if (getLevel() >= 1) log(1, 'auth', 'missing token for /v1/models');
+      await refreshServerToken();
       return res.status(401).json({
         error: {
           message: 'No GitHub Copilot token provided.',

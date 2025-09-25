@@ -4,6 +4,9 @@ import yargs, { type Argv } from 'yargs';
 
 import { ConfigManager } from '../core/config-manager.js';
 import { ModelCatalog } from '../core/model-catalog.js';
+import { renderAvailableModelsText } from '../api/commands/models.js';
+import { loadAuthInfo, loadToken } from '../config/index.js';
+import { resolveProfileIdForToken as resolveProfileIdForTokenFromCatalog } from '../core/model-selector.js';
 import { runApiCommand } from './commands/api.js';
 import { runChatCommand } from './commands/chat.js';
 import { runExecCommand } from './commands/exec.js';
@@ -21,6 +24,7 @@ function warnLegacyUsage(message: string): void {
 }
 
 const argv = process.argv.slice(2);
+const verboseFlagProvided = argv.some((arg) => arg === '--verbose' || arg.startsWith('--verbose='));
 
 let pkgVersion: string | undefined;
 try {
@@ -43,13 +47,29 @@ function clampVerbose(value: number): number {
 }
 
 function normalizeVerbose(value: unknown): number | undefined {
-  if (typeof value !== 'number') {
+  if (value === undefined || value === null) {
     return undefined;
   }
-  if (!Number.isFinite(value)) {
-    return undefined;
+  if (value === true) {
+    return 1;
   }
-  return clampVerbose(value);
+  if (value === false) {
+    return 0;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return undefined;
+    }
+    return clampVerbose(parsed);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return undefined;
+    }
+    return clampVerbose(value);
+  }
+  return undefined;
 }
 
 function handleCommandError(error: unknown): never {
@@ -104,7 +124,10 @@ let parser: Argv = yargs(argv)
     }
   })
   .middleware((args) => {
-    const verbose = normalizeVerbose(args.verbose);
+    let verbose = normalizeVerbose(args.verbose);
+    if (verbose === undefined && verboseFlagProvided) {
+      verbose = 1;
+    }
     if (typeof verbose === 'number') {
       args.verbose = verbose;
       process.env.COPILOT_VERBOSE = String(verbose);
@@ -124,16 +147,26 @@ let parser: Argv = yargs(argv)
           type: 'string',
           description: 'Override Copilot token'
         })
+        .option('model', {
+          type: 'string',
+          description: 'Override default model for this server session'
+        })
         .option('silent', {
           type: 'boolean',
           description: 'Suppress startup banner'
+        })
+        .option('oss', {
+          type: 'boolean',
+          description: 'Expose Ollama-compatible endpoints on the API server'
         }),
     async (args: any) => {
       try {
         await runApiCommand({
           port: args.port as number | undefined,
           token: args.token as string | undefined,
-          silent: args.silent as boolean | undefined
+          model: args.model as string | undefined,
+          silent: args.silent as boolean | undefined,
+          oss: args.oss as boolean | undefined
         });
       } catch (error) {
         handleCommandError(error);
@@ -156,6 +189,130 @@ let parser: Argv = yargs(argv)
         handleCommandError(error);
       }
     }
+  )
+  .command(
+    'model',
+    'Show or configure Copilot models',
+    (modelYargs: Argv) =>
+      modelYargs
+        .command(
+          'list',
+          'List available models for the active profile',
+          (y: Argv) => y,
+          async (args: any) => {
+            try {
+              const authInfo = loadAuthInfo();
+              const token = authInfo?.token || loadToken();
+              if (!args.json) {
+                const text = await renderAvailableModelsText(token ?? undefined);
+                console.log(text);
+                return;
+              }
+
+              const config = ConfigManager.getInstance();
+              const defaultModel = config.get<string>('model.default') || 'gpt-4';
+              if (!token) {
+                console.log(JSON.stringify({ defaultModel, models: [], note: 'No token available. Authenticate with `copilot profile login`.' }, null, 2));
+                return;
+              }
+
+              const profileId = resolveProfileIdForTokenFromCatalog(token);
+              if (!profileId) {
+                console.log(JSON.stringify({ defaultModel, models: [], note: 'No active profile found for stored token.' }, null, 2));
+                return;
+              }
+
+              const catalog = ModelCatalog.getInstance();
+              let entry = catalog.getEntry(profileId);
+              if (!entry || entry.models.length === 0) {
+                try {
+                  entry = await catalog.ensureFreshProfile(profileId, token, { source: 'manual', verify: false });
+                } catch (error: any) {
+                  console.log(JSON.stringify({ defaultModel, models: [], profileId, error: error?.message || String(error) }, null, 2));
+                  return;
+                }
+              }
+
+              const models = entry?.models ?? [];
+              console.log(JSON.stringify({ defaultModel, profileId, models }, null, 2));
+            } catch (error) {
+              handleCommandError(error);
+            }
+          }
+        )
+        .command(
+          'set <model>',
+          'Set the default model',
+          (y: Argv) => y.positional('model', { type: 'string', describe: 'Model id to use by default' }),
+          async (args: any) => {
+            try {
+              const targetRaw = (args.model as string | undefined)?.trim();
+              if (!targetRaw) {
+                throw new Error('Specify a model id. Example: copilot model set gpt-4o');
+              }
+
+              const config = ConfigManager.getInstance();
+              const authInfo = loadAuthInfo();
+              const token = authInfo?.token || loadToken();
+              let canonical = targetRaw;
+              if (token) {
+                const profileId = resolveProfileIdForTokenFromCatalog(token);
+                if (profileId) {
+                  const catalog = ModelCatalog.getInstance();
+                  let entry = catalog.getEntry(profileId);
+                  if (!entry || entry.models.length === 0) {
+                    try {
+                      entry = await catalog.ensureFreshProfile(profileId, token, { source: 'manual', verify: false });
+                    } catch (error: any) {
+                      throw new Error(`Failed to refresh model catalog: ${error?.message || error}`);
+                    }
+                  }
+                  const models = entry?.models ?? [];
+                  const lower = targetRaw.toLowerCase();
+                  const matched = models.find((id) => id.toLowerCase() === lower);
+                  if (!matched) {
+                    throw new Error(`Model "${targetRaw}" is not available for the active profile. Run: copilot profile refresh`);
+                  }
+                  canonical = matched;
+                }
+              }
+
+              await config.set('model.default', canonical);
+              if (args.json) {
+                console.log(JSON.stringify({ defaultModel: canonical }, null, 2));
+                return;
+              }
+              if (canonical !== targetRaw) {
+                console.log(`Default model set to ${canonical} (matched from "${targetRaw}").`);
+              } else {
+                console.log(`Default model set to ${canonical}.`);
+              }
+            } catch (error) {
+              handleCommandError(error);
+            }
+          }
+        )
+        .command(
+          '$0',
+          'Show the current default model',
+          (y: Argv) => y,
+          async (args: any) => {
+            try {
+              const config = ConfigManager.getInstance();
+              const defaultModel = config.get<string>('model.default') || 'gpt-4';
+              if (args.json) {
+                console.log(JSON.stringify({ defaultModel }, null, 2));
+                return;
+              }
+              console.log(`Default model: ${defaultModel}`);
+              console.log('View models with: copilot model list');
+              console.log('Set a different model with: copilot model set <modelId>');
+            } catch (error) {
+              handleCommandError(error);
+            }
+          }
+        ),
+    () => {}
   )
   .command(
     'profile <subcommand>',

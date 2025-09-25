@@ -13,16 +13,16 @@ export function renderCommandText(
   const primary = triggers[0] || '--';
 
   switch (command) {
-    case '--help':
-      lines.push('Copilot CLI In-Chat Commands:');
-      lines.push('  ::help                 Show this help message');
-      lines.push('  ::models               List available models');
-      lines.push('  ::config               Show all configuration');
-      lines.push('  ::config <key>         Show value for a config key');
-      lines.push('  ::config set <key> <value>  Set a config value');
+    case 'help':
+  lines.push('Copilot CLI In-Chat Commands:');
+  lines.push('    ::help                 Show this help message');
+  lines.push('    ::models               List available models');
+  lines.push('    ::config               Show all configuration');
+  lines.push('    ::config [key]         Show value for a config key');
+  lines.push('    ::config set [key] [value]  Set a config value');
   // Removed session-scoped commands; only persistent settings remain
       break;
-    case '--models':
+  case 'models':
       lines.push('Mapped models:');
       if (combined.size === 0) {
         lines.push('(no mappings configured)');
@@ -35,7 +35,7 @@ export function renderCommandText(
     // Removed session-scoped commands
     default:
       lines.push(`Unknown in-chat command: ${command}`);
-      lines.push('Try --help for available commands.');
+      lines.push('Try ::help for available commands.');
       break;
   }
 

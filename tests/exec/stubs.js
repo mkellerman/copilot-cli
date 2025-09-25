@@ -4,7 +4,7 @@ import process from 'node:process';
 
 const args = process.argv.slice(2);
 
-function requirePrompt() {
+function getPromptFromArgs() {
   const pIndex = Math.max(args.indexOf('-p'), args.indexOf('--print'));
   if (pIndex === -1) {
     console.error('missing -p/--print flag');
@@ -22,7 +22,7 @@ function requirePrompt() {
   return prompt;
 }
 
-const prompt = requirePrompt();
+const prompt = getPromptFromArgs();
 const mode = process.env.CLAUDE_STUB_MODE || 'api';
 
 if (mode === 'inspect') {

@@ -1,19 +1,31 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ConfigManager } from '../../core/config-manager.js';
-import { coerceModelToKnown } from '../../core/model-selector.js';
 import { getLevel, log } from '../../core/logger.js';
 import { CopilotHttpClient, type CopilotChatCompletionRequest } from '../../core/copilot-client.js';
-import { resolveActiveToken } from './auth.js';
+import { resolveActiveToken, refreshServerToken } from './auth.js';
 import { detectCommandInBody } from '../commands/detect.js';
 import { renderCommandText } from '../commands/text.js';
 import { buildOpenAICommandResponse } from '../commands/responders.js';
-import { forwardStreamResponse, forwardJsonResponse, safeReadText } from './helpers.js';
+import { forwardStreamResponse, forwardJsonResponse, safeReadText, postChatCompletionWithRefresh, selectModelForRequest } from './helpers.js';
 import { renderAvailableModelsText } from '../commands/models.js';
 import { runRequestPipeline, runResponsePipeline, transformsEnabled } from '../transformers/pipeline.js';
 
 const copilotClient = CopilotHttpClient.getInstance();
 
-export function registerOpenAIRoutes(app: any, token: string | undefined, sessionModelOverrides: Map<string, string>, modelDefaults: Record<string, string>) {
+interface RegisterOpenAiRouteOptions {
+  allowAnonymous?: boolean;
+  defaultModel?: string;
+}
+
+export function registerOpenAIRoutes(
+  app: any,
+  token: string | undefined,
+  sessionModelOverrides: Map<string, string>,
+  modelDefaults: Record<string, string>,
+  options: RegisterOpenAiRouteOptions = {}
+) {
+  const allowAnonymous = options.allowAnonymous ?? false;
+  const sessionDefaultModel = options.defaultModel?.trim();
   app.post('/v1/chat/completions', async (req: Request<{}, {}, CopilotChatCompletionRequest>, res: Response) => {
     if (getLevel() >= 1) log(1, 'api', 'POST /v1/chat/completions');
     if (getLevel() >= 3) log(3, 'api', 'request body', req.body);
@@ -22,9 +34,12 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
     if (preAuthCommand) {
       if (getLevel() >= 1) log(1, 'cmd', `Intercepted ${preAuthCommand.command}`);
       let text: string;
-      if (preAuthCommand.command === '--models') {
-        const activeToken = resolveActiveToken(req, token);
-        text = await renderAvailableModelsText(activeToken || undefined);
+      if (preAuthCommand.command === '--models' || preAuthCommand.command === 'models') {
+        let displayToken = await resolveActiveToken(req, token);
+        if (!displayToken) {
+          displayToken = await resolveActiveToken(req, token, { refreshIfMissing: true });
+        }
+        text = await renderAvailableModelsText(displayToken || undefined);
       } else {
         text = renderCommandText(preAuthCommand.command, preAuthCommand.args, sessionModelOverrides, modelDefaults);
       }
@@ -33,9 +48,22 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
       return;
     }
 
-    const activeToken = resolveActiveToken(req, token);
+    let activeToken = await resolveActiveToken(req, token);
+    if (!activeToken) {
+      activeToken = await resolveActiveToken(req, token, { refreshIfMissing: true });
+    }
+
+    const requestedModelName = typeof req.body?.model === 'string' && req.body.model.trim()
+      ? req.body.model.trim()
+      : ConfigManager.getInstance().get<string>('model.default') || 'gpt-4';
+    const streamRequested = req.body?.stream === true;
 
     if (!activeToken) {
+      if (allowAnonymous) {
+        respondWithOpenAIAnonymousStub(res, requestedModelName, streamRequested);
+        return;
+      }
+      await refreshServerToken();
       return res.status(401).json({
         error: {
           message: 'No GitHub Copilot token provided. Provide a GitHub token in Authorization header or run: copilot profile login',
@@ -46,7 +74,7 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
     }
 
     const config = ConfigManager.getInstance();
-    const defaultModel = config.get<string>('model.default') || 'gpt-4';
+    const defaultModel = sessionDefaultModel || config.get<string>('model.default') || 'gpt-4';
 
     let payload: CopilotChatCompletionRequest = {
       messages: req.body.messages,
@@ -64,11 +92,11 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
     };
 
     const requestedModel = payload.model;
-    const selection = coerceModelToKnown(requestedModel, defaultModel, activeToken);
-    if (selection.fallback && requestedModel && requestedModel !== selection.model && getLevel() >= 1) {
-      log(1, 'model', `Falling back to default model ${selection.model} (requested ${requestedModel})`);
-    }
+    const selection = await selectModelForRequest(activeToken, requestedModel, defaultModel);
     payload.model = selection.model;
+    if (selection.fallback && getLevel() >= 1) {
+      log(1, 'model', `Using model ${selection.model} (requested ${requestedModel ?? 'default'}; source=${selection.source}${selection.refreshed ? ', refreshed' : ''})`);
+    }
 
     const abortController = new AbortController();
     const handleClose = () => {
@@ -83,7 +111,13 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
         payload = result.payload;
       }
       if (getLevel() >= 2) log(2, 'upstream', '-> POST /chat/completions', { model: payload.model, stream: payload.stream });
-      const upstream = await copilotClient.postChatCompletion(activeToken, payload, { signal: abortController.signal });
+      const { response: upstream, token: latestToken } = await postChatCompletionWithRefresh(
+        copilotClient,
+        activeToken,
+        payload,
+        abortController
+      );
+      activeToken = latestToken;
 
       if (payload.stream) {
         await forwardStreamResponse(upstream, res, abortController);
@@ -161,5 +195,72 @@ export function registerOpenAIRoutes(app: any, token: string | undefined, sessio
 
     req.url = '/v1/chat/completions';
     next();
+  });
+}
+
+function respondWithOpenAIAnonymousStub(
+  res: Response,
+  model: string,
+  streamRequested: boolean,
+  overrideMessage?: string,
+  statusCode = 200
+) {
+  const message = overrideMessage
+    || 'No GitHub Copilot token available. Run `copilot profile login` to enable chat completions through the OSS proxy.';
+  const created = Math.floor(Date.now() / 1000);
+  const id = `anon_${Date.now()}`;
+
+  if (streamRequested) {
+    res.status(statusCode);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    const flushHeaders = (res as any).flushHeaders;
+    if (typeof flushHeaders === 'function') {
+      flushHeaders.call(res);
+    }
+
+    const buildChunk = (delta: Record<string, unknown>, finishReason: string | null) =>
+      JSON.stringify({
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta,
+            finish_reason: finishReason
+          }
+        ]
+      });
+
+    res.write(`data: ${buildChunk({ role: 'assistant', content: message }, null)}\n\n`);
+    res.write(`data: ${buildChunk({}, 'stop')}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+
+  res.status(statusCode).json({
+    id,
+    object: 'chat.completion',
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: message
+        },
+        finish_reason: 'stop'
+      }
+    ],
+    usage: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0
+    }
   });
 }

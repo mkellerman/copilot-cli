@@ -40,11 +40,14 @@ copilot profile logout my-profile
 ### Run the API Proxy
 
 ```bash
-# Start on default port (3000)
+# Start on default port (3000) and loopback host
 copilot api
 
 # Start on custom port and suppress the banner
 copilot api --port 8080 --silent
+
+# Start Ollama-compatible endpoints on the default Ollama port (11434)
+copilot api --oss
 
 # Increase verbosity (0-3) for structured logging
 copilot --verbose=2 api

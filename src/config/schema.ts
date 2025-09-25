@@ -33,7 +33,7 @@ export type AppConfig = z.infer<typeof ConfigSchema>;
 export const DEFAULT_CONFIG: AppConfig = {
   api: {
     port: 3000,
-    host: 'localhost'
+    host: '127.0.0.1'
   },
   model: {
     default: 'gpt-4',

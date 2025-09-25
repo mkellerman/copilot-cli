@@ -81,7 +81,7 @@ export async function runCopilot(context, cliArgs, options = {}) {
     COPILOT_CMD_TRIGGERS: '::',
     COPILOT_MOCK_MODELS: JSON.stringify(context.models),
     COPILOT_MOCK_LOG: context.mockLog,
-    NODE_OPTIONS: mergeNodeOptions(process.env.NODE_OPTIONS, `--require=${MOCK_SETUP}`),
+    NODE_OPTIONS: process.env.NODE_OPTIONS,
     COPILOT_MOCK_RESPONSE_TEXT: options.mockResponseText ?? 'mocked-response'
   };
 
@@ -110,16 +110,6 @@ export async function runCopilot(context, cliArgs, options = {}) {
   });
 
   return { stdout, stderr, exitCode };
-}
-
-function mergeNodeOptions(existing, injection) {
-  if (!existing || existing.length === 0) {
-    return injection;
-  }
-  if (existing.includes(injection)) {
-    return existing;
-  }
-  return `${existing} ${injection}`.trim();
 }
 
 export async function readMockEvents(context) {

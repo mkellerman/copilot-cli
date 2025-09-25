@@ -8,6 +8,7 @@ export const AUTH_FILE = path.join(CONFIG_DIR, 'auth.json');
 export const PROFILES_FILE = path.join(CONFIG_DIR, 'profiles.json');
 export const ACTIVE_PROFILE_FILE = path.join(CONFIG_DIR, 'active-profile');
 export const DEFAULT_PORT = 3000;
+export const DEFAULT_OSS_PORT = 11434;
 export const COPILOT_HOST = 'api.githubcopilot.com';
 
 export interface AuthInfo {
