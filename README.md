@@ -18,6 +18,21 @@ npm run build
 npm link
 ```
 
+## Install from GitHub Releases
+
+You can install the latest prebuilt package directly from the GitHub Releases page without using npmjs.com:
+
+1. Go to the [Releases page](https://github.com/mkellerman/copilot-cli/releases) and download the latest `.tgz` file (e.g., `copilot-cli-<version>.tgz`).
+2. Install it using npm:
+
+```bash
+npm install https://github.com/mkellerman/copilot-cli/releases/download/<tag>/copilot-cli-<version>.tgz
+```
+
+Replace `<tag>` and `<version>` with the actual release tag and filename.
+
+This method does not require publishing to the npm registry. The package is built and attached to each GitHub Release automatically.
+
 ## Usage
 
 ### Authenticate & Manage Profiles
